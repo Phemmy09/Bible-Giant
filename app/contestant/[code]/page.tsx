@@ -20,6 +20,7 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Countdown } from '@/components/ui/Countdown';
 import { OptionCard } from '@/components/ui/OptionCard';
+import { computeLeaderboard } from '@/lib/scoring';
 
 export default function ContestantViewPage() {
   const params = useParams();
@@ -33,7 +34,7 @@ export default function ContestantViewPage() {
   const [contestant, setContestant] = useState<Contestant | null>(null);
   const [contestants, setContestants] = useState<Contestant[]>([]);
   const [contestantScore, setContestantScore] = useState<number>(0);
-  const [contestantRank, setContestantRank] = useState<number>(1);
+  const [allContestantScores, setAllContestantScores] = useState<ContestantScore[]>([]);
   const [initError, setInitError] = useState<string | null>(null);
 
   // Live question state
@@ -98,18 +99,17 @@ export default function ContestantViewPage() {
           setContestantScore(scData.total_points || 0);
         }
 
-        // Fetch rank from all scores
+        // Fetch all scores for ranking
         const { data: allScores } = await supabase
           .from('contestant_scores')
-          .select('contestant_id, total_points, correct_count, correct_ms')
+          .select('*')
           .eq('event_id', evId)
           .order('total_points', { ascending: false })
           .order('correct_count', { ascending: false })
           .order('correct_ms', { ascending: true });
 
         if (allScores) {
-          const rank = allScores.findIndex((s) => s.contestant_id === cData.id) + 1;
-          setContestantRank(rank || 1);
+          setAllContestantScores(allScores as ContestantScore[]);
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Error loading contestant data';
@@ -138,15 +138,27 @@ export default function ContestantViewPage() {
       }
     });
 
-    // Subscribe to score updates
+    // Subscribe to all contestant score updates
     const scoreChannel = supabase
-      .channel(`contestant_score:${contestant.id}`)
+      .channel(`contestant_score_updates:${eventId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'contestant_scores', filter: `contestant_id=eq.${contestant.id}` },
-        (payload) => {
-          const sc = payload.new as ContestantScore;
-          if (sc) setContestantScore(sc.total_points || 0);
+        { event: '*', schema: 'public', table: 'contestant_scores', filter: `event_id=eq.${eventId}` },
+        () => {
+          supabase
+            .from('contestant_scores')
+            .select('*')
+            .eq('event_id', eventId)
+            .order('total_points', { ascending: false })
+            .order('correct_count', { ascending: false })
+            .order('correct_ms', { ascending: true })
+            .then(({ data }) => {
+              if (data) {
+                setAllContestantScores(data as ContestantScore[]);
+                const myRow = data.find((r) => r.contestant_id === contestant.id);
+                if (myRow) setContestantScore(myRow.total_points || 0);
+              }
+            });
         }
       )
       .subscribe();
@@ -203,13 +215,35 @@ export default function ContestantViewPage() {
     }
   }, [currentQuestion?.id, gameState?.question_status, fetchMyAnswer, supabase]);
 
+  // Ranked contestants with tie-breaks
+  const rankedContestants = useMemo(() => {
+    const merged = contestants.map((c) => {
+      const sc = allContestantScores.find((s) => s.contestant_id === c.id);
+      return {
+        id: c.id,
+        seat_no: c.seat_no,
+        name: c.name,
+        group_label: c.group_label,
+        total_points: sc?.total_points || 0,
+        correct_count: sc?.correct_count || 0,
+        correct_ms: sc?.correct_ms || 0,
+      };
+    });
+    return computeLeaderboard(merged);
+  }, [contestants, allContestantScores]);
+
+  const myRankDisplay = useMemo(() => {
+    if (!contestant) return '1';
+    const row = rankedContestants.find((r) => r.id === contestant.id);
+    return row?.rankDisplay || '1';
+  }, [contestant, rankedContestants]);
+
   // Answer submission handler
   const handleSelectAnswer = useCallback(
     async (choice: OptionKey) => {
       if (!currentQuestion?.id || isSubmitting || myAnswer) return;
       if (gameState?.question_status !== 'open') return;
 
-      // Optimistic selection
       setSelectedChoice(choice);
       setIsSubmitting(true);
       setSubmitError(null);
@@ -218,7 +252,6 @@ export default function ContestantViewPage() {
       setIsSubmitting(false);
 
       if (res.ok) {
-        // Answer accepted
         setMyAnswer({
           id: '',
           event_id: eventId || '',
@@ -233,13 +266,21 @@ export default function ContestantViewPage() {
         });
       } else {
         setSubmitError(res.message);
-        // If server says already answered, re-fetch actual answer
         if (res.code === 'already_answered') {
           fetchMyAnswer();
         }
       }
     },
-    [currentQuestion?.id, isSubmitting, myAnswer, gameState?.question_status, supabase, eventId, contestant?.id, fetchMyAnswer]
+    [
+      currentQuestion?.id,
+      isSubmitting,
+      myAnswer,
+      gameState?.question_status,
+      supabase,
+      eventId,
+      contestant?.id,
+      fetchMyAnswer,
+    ]
   );
 
   // Keyboard shortcut listener for options A, B, C, D, E
@@ -299,22 +340,27 @@ export default function ContestantViewPage() {
       {/* Contestant Header: Name, Seat, Connection Dot, Score & Rank */}
       <header className="w-full bg-navy-900 text-cream-50 border-b border-navy-700 px-4 sm:px-8 py-3.5 flex items-center justify-between shadow-soft sticky top-0 z-20">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2.5">
-            <span className="font-mono text-sm font-extrabold text-navy-950 bg-gold-500 px-2.5 py-0.5 rounded-chip">
-              Seat #{contestant.seat_no}
-            </span>
-            <span className="font-semibold text-cream-50 text-base sm:text-lg">
+          <div className="w-8 h-8 rounded-full bg-gold-500 text-navy-950 flex items-center justify-center font-mono font-bold text-sm">
+            #{contestant.seat_no}
+          </div>
+          <div>
+            <span className="font-display font-bold text-base sm:text-lg text-cream-50 block leading-tight">
               {contestant.name}
             </span>
+            {contestant.group_label && (
+              <span className="text-xs text-gold-300 block">{contestant.group_label}</span>
+            )}
           </div>
-          <ConnectionDot status={connectionStatus} className="text-gold-300" />
+          <ConnectionDot status={connectionStatus} className="text-gold-300 ml-1" />
         </div>
 
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-xs sm:text-sm">
-            <span className="text-gold-300 font-medium">Rank:</span>
-            <span className="font-display font-bold text-cream-50 text-lg tabular-nums">
-              #{contestantRank}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-navy-800 border border-navy-700 px-3 py-1 rounded-chip">
+            <span className="text-xs uppercase tracking-wider text-gold-300 font-semibold">
+              Rank:
+            </span>
+            <span className="font-mono font-bold text-cream-50 text-base">
+              {myRankDisplay}
             </span>
           </div>
 
@@ -331,8 +377,74 @@ export default function ContestantViewPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-3xl w-full mx-auto px-4 py-8 flex flex-col justify-center items-center">
-        {/* 1. WAITING / LOBBY STATE */}
-        {qStatus === 'hidden' && (
+        {/* 1. LEADERBOARD SCREEN OVERLAY */}
+        {gameState?.screen === 'leaderboard' ? (
+          <div className="w-full flex flex-col gap-6 animate-fade-in py-2">
+            <div className="text-center">
+              <span className="text-xs uppercase tracking-widest font-bold text-gold-500">
+                Official Standings
+              </span>
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-navy-900 mt-1">
+                Leaderboard Standings
+              </h2>
+              <p className="text-xs sm:text-sm text-ink-500 mt-1">
+                Your podium is highlighted in gold below
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5 w-full">
+              {rankedContestants.map((entry) => {
+                const isMe = entry.id === contestant.id;
+                return (
+                  <div
+                    key={entry.id}
+                    className={`p-4 rounded-card border flex items-center justify-between transition-all ${
+                      isMe
+                        ? 'bg-gold-500/20 border-gold-500 shadow-soft ring-2 ring-gold-500'
+                        : 'bg-white border-navy-700/10'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <span
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-mono font-bold text-sm shrink-0 ${
+                          entry.rank === 1
+                            ? 'bg-gold-500 text-navy-950 shadow-soft'
+                            : isMe
+                            ? 'bg-navy-900 text-cream-50'
+                            : 'bg-cream-100 text-navy-900'
+                        }`}
+                      >
+                        {entry.rankDisplay}
+                      </span>
+                      <div>
+                        <p className="font-bold text-navy-900 text-base leading-snug">
+                          Seat #{entry.seat_no}: {entry.name} {isMe && '(You)'}
+                        </p>
+                        {entry.group_label && (
+                          <p className="text-xs text-ink-500">{entry.group_label}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-5">
+                      <div className="text-right text-xs text-ink-500 hidden sm:block font-mono">
+                        <p>Correct: <strong className="text-navy-900">{entry.correct_count}</strong></p>
+                        <p>Speed: <strong className="text-navy-900">{(entry.correct_ms / 1000).toFixed(1)}s</strong></p>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-display font-extrabold text-2xl text-navy-900 tabular-nums">
+                          {entry.total_points}
+                        </span>
+                        <span className="text-xs text-ink-500 block">pts</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : qStatus === 'hidden' ? (
+          /* 2. WAITING / LOBBY STATE */
           <div className="text-center flex flex-col items-center gap-5 w-full animate-fade-in">
             <div className="w-20 h-20 rounded-full bg-navy-900 border-2 border-gold-500 text-gold-500 flex items-center justify-center text-3xl font-mono font-bold shadow-soft">
               #{contestant.seat_no}
@@ -361,10 +473,8 @@ export default function ContestantViewPage() {
               </div>
             </Card>
           </div>
-        )}
-
-        {/* 2. SHOWN / OPEN / LOCKED / REVEALED QUESTION STATES */}
-        {qStatus !== 'hidden' && currentQuestion && (
+        ) : currentQuestion ? (
+          /* 3. SHOWN / OPEN / LOCKED / REVEALED QUESTION STATES */
           <div className="w-full flex flex-col gap-6 animate-fade-in">
             {/* Round info chip & Individual indicator */}
             <div className="flex items-center justify-between flex-wrap gap-2 border-b border-navy-700/15 pb-3">
@@ -419,7 +529,47 @@ export default function ContestantViewPage() {
               </div>
             )}
 
-            {/* Answer Options */}
+            {/* Spoken Mode Question Box */}
+            {currentQuestion.answer_mode === 'spoken' && (
+              <Card className="p-6 bg-cream-100 border-gold-500/40 text-center shadow-soft my-2">
+                {isAssignedToOther ? (
+                  <>
+                    <span className="text-3xl">🎙️</span>
+                    <h3 className="font-display text-xl font-bold text-navy-900 mt-2">
+                      {assignedContestantName} is answering spoken
+                    </h3>
+                    <p className="text-xs sm:text-sm text-ink-500 mt-1">
+                      Please listen respectfully while the judges evaluate the recitation.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-3xl animate-bounce block">🎙️</span>
+                    <h3 className="font-display text-2xl font-bold text-navy-900 mt-1">
+                      Your Turn to Speak!
+                    </h3>
+                    <p className="text-sm text-ink-500 mt-1 max-w-md mx-auto">
+                      Please recite or speak your answer clearly to the judges on stage. The operator will mark your response.
+                    </p>
+                    {myAnswer && (
+                      <div className="mt-4 pt-3 border-t border-navy-700/10">
+                        <span
+                          className={`inline-block px-3 py-1 rounded text-xs font-bold ${
+                            myAnswer.is_correct
+                              ? 'bg-success text-white'
+                              : 'bg-danger text-white'
+                          }`}
+                        >
+                          Judges Mark: {myAnswer.is_correct ? 'Correct ✓' : 'Wrong ✗'} ({myAnswer.points >= 0 ? `+${myAnswer.points}` : myAnswer.points} pts)
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </Card>
+            )}
+
+            {/* Answer Options (Choice Mode) */}
             {currentQuestion.answer_mode === 'choice' && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 my-2">
                 {currentQuestion.options.map((opt) => {
@@ -524,12 +674,12 @@ export default function ContestantViewPage() {
 
                 <div className="flex items-center justify-between pt-2 text-sm font-semibold text-navy-900">
                   <span>Your Total Score: {contestantScore} pts</span>
-                  <span>Rank: #{contestantRank}</span>
+                  <span>Rank: #{myRankDisplay}</span>
                 </div>
               </Card>
             )}
           </div>
-        )}
+        ) : null}
       </main>
 
       {/* Footer */}

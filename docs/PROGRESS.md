@@ -383,9 +383,77 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 - Next.js production build verified across all dynamic client and server pages.
 
 ### Known Gaps / Risks
-- Spoken marking UI is present in S-11 console; full spoken round integration and adjustments UI will be refined in Phase 6.
-- Final leaderboard tie-breaking and score adjustments UI are scheduled for Phase 6.
+- None from Phase 5.
 
 ### Assumptions Made (Q-numbers)
 - None new.
+
+---
+
+## Phase 6 — Individual Round, Spoken Mode, Leaderboards — 2026-10-31
+
+### Built
+- Implemented Leaderboard sorting and tie-breaking engine in `lib/scoring.ts`:
+  - `computeLeaderboard`: Full 4-tier deterministic tie-break sorting:
+    1. `total_points` descending
+    2. `correct_count` descending
+    3. `correct_ms` ascending (sum of elapsed milliseconds on correct answers)
+    4. `seat_no` ascending (deterministic tie break)
+  - Automatic tie display formatting: entries tied on the first three keys share the identical rank with an equals prefix (e.g. `=1`, `=2`), strictly adhering to `docs/04-GAME-RULES-AND-SCORING.md` §6.
+  - Implemented unit tests for U-03 in `tests/unit/scoring.test.ts`.
+- Integrated Spoken Mode & Individual Assigned Questions across all screens:
+  - **S-11 Operator Live Console** (`app/host/[eventId]/live/page.tsx`):
+    - Individual assigned question indicators: filters spoken marking controls to the assigned contestant when `assigned_contestant_id` is set, preventing SQL `bad_state` errors.
+    - Spoken marking buttons: `✓ Correct` and `✗ Wrong` with active state highlighting, instantly updating answers and scores via `rpcHostMarkSpoken`.
+  - **S-05 Contestant View** (`app/contestant/[code]/page.tsx`):
+    - Dedicated spoken question UI: displays "Your Turn to Speak!" banner with instructions to recite aloud to judges, along with live feedback when marked by the operator.
+    - If assigned to another contestant: displays "<Name> is answering spoken" in read-only mode.
+  - **S-13 Projector Display** (`app/screen/[eventId]/page.tsx`):
+    - Spoken question announcement card displaying the assigned contestant's seat and name.
+- Built Score Adjustment feature:
+  - `components/host/ScoreAdjustmentModal.tsx`:
+    - Contestant picker with seat and group labels.
+    - Delta points input with quick pills (`+10`, `+20`, `+50`, `-10`, `-20`).
+    - Reason input requiring at least 3 characters per SQL constraint.
+    - Persistent adjustment history log showing past adjustments with timestamps and delta badges.
+    - Real-time score recalculation via `rpcHostAdjustScore`.
+  - Added "Adjust Scores" action button directly in the S-11 Operator Live Console header.
+- Implemented Leaderboards across all screens:
+  - **S-13 Projector Display** (`app/screen/[eventId]/page.tsx`):
+    - Comprehensive `screen === 'leaderboard'` view with Gold, Silver, Bronze badges for the top 3, full tie-break stats (`Correct: N`, `Speed: X.X s`), giant typography for total points, and a Top 10 Audience Leaderboard sidebar.
+  - **S-05 Contestant View** (`app/contestant/[code]/page.tsx`):
+    - Full leaderboard view when `gameState?.screen === 'leaderboard'`, highlighting the contestant's own podium card in gold with an active rank badge.
+  - **S-03 Audience View** (`app/audience/[code]/page.tsx`):
+    - Synchronized leaderboard view with `computeLeaderboard` tie indicators (`=N`) for all contestants and audience members.
+
+### Files Changed / Created
+- `lib/scoring.ts`
+- `tests/unit/scoring.test.ts`
+- `components/host/ScoreAdjustmentModal.tsx`
+- `app/host/[eventId]/live/page.tsx`
+- `app/screen/[eventId]/page.tsx`
+- `app/contestant/[code]/page.tsx`
+- `app/audience/[code]/page.tsx`
+- `docs/PROGRESS.md`
+
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run test` (`vitest run`): PASSED (5 test files, 11 of 11 tests passing, including U-01, U-02, U-03, U-04, U-05, U-06).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd run build` (`next build`): PASSED (All 13 routes compiled cleanly).
+
+### Tests Run and Results
+- `tests/unit/scoring.test.ts`: U-01, U-02, and U-03 (rank sorting with 4 tie-break tiers and `=N` format) all passing.
+- `tests/unit/errors.test.ts`: U-05 passing.
+- `tests/unit/csv.test.ts`: U-04 passing.
+- `tests/unit/join-code.test.ts`: U-06 passing.
+- `tests/unit/security-static.test.ts`: SEC-12 passing.
+- Next.js production build verified for all App Router pages.
+
+### Known Gaps / Risks
+- Final results export page `/host/[eventId]/results` and raffle drawing interface are scheduled for Phase 7.
+
+### Assumptions Made (Q-numbers)
+- None new.
+
 

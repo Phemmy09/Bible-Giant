@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/Button';
 import { Countdown } from '@/components/ui/Countdown';
 import { OptionCard } from '@/components/ui/OptionCard';
 import { AudiencePredictions } from '@/components/audience/AudiencePredictions';
+import { computeLeaderboard } from '@/lib/scoring';
 
 export default function AudienceViewPage() {
   const params = useParams();
@@ -401,6 +402,23 @@ export default function AudienceViewPage() {
     return hasTie ? `=${num}` : `${num}`;
   }, [audienceId, allAudienceScores]);
 
+  // Ranked contestants for leaderboard with tie-breaks
+  const rankedContestants = useMemo(() => {
+    const merged = contestants.map((c) => {
+      const sc = contestantScores.find((s) => s.contestant_id === c.id);
+      return {
+        id: c.id,
+        seat_no: c.seat_no,
+        name: c.name,
+        group_label: c.group_label,
+        total_points: sc?.total_points || 0,
+        correct_count: sc?.correct_count || 0,
+        correct_ms: sc?.correct_ms || 0,
+      };
+    });
+    return computeLeaderboard(merged);
+  }, [contestants, contestantScores]);
+
   if (initError) {
     return (
       <main className="min-h-screen bg-cream-50 flex items-center justify-center p-4">
@@ -570,32 +588,29 @@ export default function AudienceViewPage() {
                 Contestants
               </h3>
               <div className="flex flex-col gap-2">
-                {contestantScores.map((cs, idx) => {
-                  const contestantObj = contestants.find((c) => c.id === cs.contestant_id);
-                  return (
-                    <div
-                      key={cs.contestant_id}
-                      className="flex items-center justify-between p-2.5 rounded-card bg-cream-50 border border-navy-700/5 text-sm"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="w-6 font-mono font-bold text-xs text-ink-500">
-                          #{idx + 1}
-                        </span>
-                        <div>
-                          <p className="font-bold text-navy-900">
-                            {contestantObj?.name || `Contestant ${idx + 1}`}
-                          </p>
-                          {contestantObj?.group_label && (
-                            <p className="text-xs text-ink-500">{contestantObj.group_label}</p>
-                          )}
-                        </div>
-                      </div>
-                      <span className="font-display font-extrabold text-navy-900 tabular-nums">
-                        {cs.total_points} pts
+                {rankedContestants.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="flex items-center justify-between p-2.5 rounded-card bg-cream-50 border border-navy-700/5 text-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 font-mono font-bold text-xs text-ink-500">
+                        #{entry.rankDisplay}
                       </span>
+                      <div>
+                        <p className="font-bold text-navy-900">
+                          Seat #{entry.seat_no}: {entry.name}
+                        </p>
+                        {entry.group_label && (
+                          <p className="text-xs text-ink-500">{entry.group_label}</p>
+                        )}
+                      </div>
                     </div>
-                  );
-                })}
+                    <span className="font-display font-extrabold text-navy-900 tabular-nums">
+                      {entry.total_points} pts
+                    </span>
+                  </div>
+                ))}
               </div>
             </Card>
 

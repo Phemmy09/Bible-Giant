@@ -32,6 +32,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Countdown } from '@/components/ui/Countdown';
 import { Modal } from '@/components/ui/Modal';
+import { ScoreAdjustmentModal } from '@/components/host/ScoreAdjustmentModal';
 
 export default function HostLiveConsolePage() {
   const params = useParams();
@@ -61,6 +62,7 @@ export default function HostLiveConsolePage() {
   // Modals & UI actions
   const [isCallingRpc, setIsCallingRpc] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
   const autoLockCalledRef = useRef(false);
@@ -349,6 +351,15 @@ export default function HostLiveConsolePage() {
             <span className="font-mono font-bold text-cream-50">{audienceCount}</span>
           </div>
           <div className="h-4 w-px bg-navy-700" />
+          <button
+            type="button"
+            onClick={() => setAdjustModalOpen(true)}
+            className="px-2.5 py-1 rounded bg-navy-800 border border-gold-500/40 text-gold-300 font-bold text-xs hover:bg-navy-700 transition-colors flex items-center gap-1.5"
+          >
+            <span>⚖️</span>
+            <span>Adjust Scores</span>
+          </button>
+          <div className="h-4 w-px bg-navy-700" />
           <Link
             href={`/screen/${eventId}`}
             target="_blank"
@@ -493,45 +504,56 @@ export default function HostLiveConsolePage() {
               {/* Spoken Mode Marks */}
               {activeQuestion?.answer_mode === 'spoken' && (
                 <div className="my-4 p-4 bg-cream-100 rounded-btn border border-gold-500/30">
-                  <p className="text-xs uppercase tracking-wider font-bold text-navy-900 mb-2">
-                    Spoken Marking
-                  </p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs uppercase tracking-wider font-bold text-navy-900">
+                      Spoken Marking
+                    </p>
+                    {activeQuestion.assigned_contestant_id && (
+                      <span className="text-xs font-bold text-gold-500 bg-white px-2 py-0.5 rounded border border-gold-500/20">
+                        Assigned Seat #{contestants.find((c) => c.id === activeQuestion.assigned_contestant_id)?.seat_no}
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-2">
-                    {contestants.map((c) => {
-                      const ans = contestantAnswersMap.get(c.id);
+                    {contestants
+                      .filter((c) => !activeQuestion.assigned_contestant_id || activeQuestion.assigned_contestant_id === c.id)
+                      .map((c) => {
+                        const ans = contestantAnswersMap.get(c.id);
 
-                      return (
-                        <div key={c.id} className="flex items-center justify-between text-sm">
-                          <span className="font-medium text-navy-900">
-                            Seat #{c.seat_no}: {c.name}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => handleMarkSpoken(c.id, true)}
-                              className={`px-3 py-1 rounded text-xs font-bold transition-colors ${
-                                ans?.is_correct === true
-                                  ? 'bg-success text-white'
-                                  : 'bg-cream-50 border border-success/40 text-success hover:bg-success/10'
-                              }`}
-                            >
-                              ✓ Correct
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleMarkSpoken(c.id, false)}
-                              className={`px-3 py-1 rounded text-xs font-bold transition-colors ${
-                                ans?.is_correct === false
-                                  ? 'bg-danger text-white'
-                                  : 'bg-cream-50 border border-danger/40 text-danger hover:bg-danger/10'
-                              }`}
-                            >
-                              ✗ Wrong
-                            </button>
+                        return (
+                          <div key={c.id} className="flex items-center justify-between text-sm bg-white p-2.5 rounded-btn border border-navy-700/10">
+                            <span className="font-bold text-navy-900">
+                              Seat #{c.seat_no}: {c.name} {c.group_label ? `(${c.group_label})` : ''}
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleMarkSpoken(c.id, true)}
+                                disabled={isCallingRpc}
+                                className={`px-3 py-1.5 rounded text-xs font-bold transition-colors ${
+                                  ans?.is_correct === true
+                                    ? 'bg-success text-white ring-2 ring-success'
+                                    : 'bg-cream-50 border border-success/40 text-success hover:bg-success/15'
+                                }`}
+                              >
+                                ✓ Correct
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleMarkSpoken(c.id, false)}
+                                disabled={isCallingRpc}
+                                className={`px-3 py-1.5 rounded text-xs font-bold transition-colors ${
+                                  ans?.is_correct === false
+                                    ? 'bg-danger text-white ring-2 ring-danger'
+                                    : 'bg-cream-50 border border-danger/40 text-danger hover:bg-danger/15'
+                                }`}
+                              >
+                                ✗ Wrong
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                   </div>
                 </div>
               )}
@@ -767,6 +789,18 @@ export default function HostLiveConsolePage() {
           </div>
         </div>
       </Modal>
+
+      {/* Score Adjustment Modal */}
+      <ScoreAdjustmentModal
+        eventId={eventId}
+        contestants={contestants}
+        isOpen={adjustModalOpen}
+        onClose={() => setAdjustModalOpen(false)}
+        onAdjusted={() => {
+          fetchAnswersAndScores();
+          refetch();
+        }}
+      />
     </div>
   );
 }
