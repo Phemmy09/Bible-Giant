@@ -20,9 +20,9 @@ export default function ContestantSignInPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [code, setCode] = useState(DEFAULT_EVENT_CODE);
+  const [code, setCode] = useState('');
   const [seat, setSeat] = useState<number>(1);
-  const [pin, setPin] = useState(DEFAULT_CONTESTANT_PIN);
+  const [pin, setPin] = useState('');
 
   // Participant Name, State & Zone
   const [name, setName] = useState('');
@@ -100,7 +100,7 @@ export default function ContestantSignInPage() {
       return;
     }
     if (!/^[0-9]{4}$/.test(cleanPin)) {
-      setError('PIN must be exactly 4 digits (Default: 7777)');
+      setError('PIN must be exactly 4 digits');
       return;
     }
 
@@ -214,19 +214,14 @@ export default function ContestantSignInPage() {
 
             {/* Event Code */}
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-navy-900">
-                  Event Code
-                </label>
-                <span className="text-xs bg-gold-100 text-gold-900 px-2 py-0.5 rounded font-mono font-bold">
-                  Hardcoded: {DEFAULT_EVENT_CODE}
-                </span>
-              </div>
+              <label className="text-sm font-semibold text-navy-900">
+                Event Code
+              </label>
               <input
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder={DEFAULT_EVENT_CODE}
+                placeholder="Enter 5-character event code"
                 maxLength={5}
                 required
                 className="w-full min-h-[48px] text-center font-mono text-xl font-extrabold uppercase tracking-widest rounded-btn bg-cream-50 border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
@@ -345,14 +340,9 @@ export default function ContestantSignInPage() {
 
             {/* Security PIN */}
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-navy-900">
-                  4-Digit Security PIN
-                </label>
-                <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono font-bold">
-                  Default PIN: {DEFAULT_CONTESTANT_PIN}
-                </span>
-              </div>
+              <label className="text-sm font-semibold text-navy-900">
+                4-Digit Security PIN
+              </label>
               <input
                 type="password"
                 inputMode="numeric"
@@ -360,7 +350,7 @@ export default function ContestantSignInPage() {
                 maxLength={4}
                 value={pin}
                 onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder={DEFAULT_CONTESTANT_PIN}
+                placeholder="••••"
                 required
                 className="w-full min-h-[48px] text-center font-mono text-2xl font-extrabold tracking-widest rounded-btn bg-cream-50 border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
               />

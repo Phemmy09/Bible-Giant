@@ -15,7 +15,7 @@ export default function OperatorLoginPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [email, setEmail] = useState(HARDCODED_OPERATOR_EMAIL);
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -116,7 +116,7 @@ export default function OperatorLoginPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="mailizzy02@gmail.com"
+              placeholder="operator@example.com"
             />
 
             <Input
@@ -126,7 +126,7 @@ export default function OperatorLoginPage() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Admin1234@"
+              placeholder="••••••••"
             />
 
             <Button

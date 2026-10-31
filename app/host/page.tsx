@@ -176,15 +176,12 @@ export default function HostEventsPage() {
                 <span className="bg-gold-500 text-navy-950 text-xs font-black uppercase px-2.5 py-0.5 rounded tracking-wider">
                   ⚡ Operational Live Stage
                 </span>
-                <span className="text-xs text-gold-300 font-mono">
-                  Code: <strong className="text-cream-50 tracking-widest text-sm">{DEFAULT_EVENT_CODE}</strong>
-                </span>
               </div>
               <h2 className="font-display text-2xl sm:text-3xl font-bold text-cream-50">
                 Apostolic Faith Camp Meeting 2026 - Bible Giant
               </h2>
               <p className="text-sm text-gold-200/80 mt-1">
-                Ondo & Ekiti Region • 8 Contestant Seats (#7777) • 3 Rounds • 18 Prepared Questions
+                Ondo & Ekiti Region • 8 Contestant Seats • 3 Rounds • 18 Prepared Questions
               </p>
             </div>
 
@@ -209,7 +206,7 @@ export default function HostEventsPage() {
             >
               <span className="text-xl block mb-1">👥</span>
               <span className="text-xs font-semibold text-cream-50 block">Contestants Roster</span>
-              <span className="text-[10px] text-gold-300">8 Seats (PIN: 7777)</span>
+              <span className="text-[10px] text-gold-300">8 Contestant Seats</span>
             </Link>
 
             <Link

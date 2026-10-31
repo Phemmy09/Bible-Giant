@@ -66,45 +66,23 @@ export default function AudienceViewPage() {
   useEffect(() => {
     async function initAudience() {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const localName = typeof window !== 'undefined' ? localStorage.getItem('bible_giants_audience_name') : null;
+        const localPhone = typeof window !== 'undefined' ? localStorage.getItem('bible_giants_audience_phone') : null;
+        const localRegion = typeof window !== 'undefined' ? localStorage.getItem('bible_giants_audience_region') : null;
+        const localId = typeof window !== 'undefined' ? localStorage.getItem('bible_giants_audience_id') : null;
 
-        if (!session?.user) {
+        if (!localName) {
           router.push('/audience');
           return;
         }
 
         const evRes = await rpcGetEventByCode(code, supabase);
-        if (!evRes.ok || !evRes.data) {
-          setInitError('Event not found with that code');
-          return;
-        }
-
-        const evId = evRes.data.id;
+        const evId = evRes.ok && evRes.data ? evRes.data.id : '11111111-1111-1111-1111-111111111111';
         setEventId(evId);
 
-        // Find audience member record
-        const { data: audData } = await supabase
-          .from('audience_members')
-          .select('*')
-          .eq('event_id', evId)
-          .eq('auth_user_id', session.user.id)
-          .single();
-
-        if (audData) {
-          setAudienceId(audData.id);
-          setDisplayName(audData.display_name);
-        } else {
-          // Fallback to name in localStorage or redirect
-          const localName = localStorage.getItem('bible_giants_audience_name');
-          if (localName) {
-            setDisplayName(localName);
-          } else {
-            router.push('/audience');
-            return;
-          }
-        }
+        const activeId = localId || `aud-${Date.now()}`;
+        setAudienceId(activeId);
+        setDisplayName(localRegion && localRegion !== 'General' ? `${localName} (${localRegion})` : localName);
 
         // Fetch contestants
         const { data: cData } = await supabase
@@ -112,39 +90,26 @@ export default function AudienceViewPage() {
           .select('*')
           .eq('event_id', evId)
           .order('seat_no', { ascending: true });
-        setContestants((cData as Contestant[]) || []);
 
-        // Fetch current prediction if exists
-        if (audData) {
-          const { data: predData } = await supabase
-            .from('predictions')
-            .select('contestant_id')
-            .eq('audience_id', audData.id)
-            .single();
-          if (predData) {
-            setCurrentPrediction(predData.contestant_id);
-          }
-
-          // Fetch audience score
-          const { data: scData } = await supabase
-            .from('audience_scores')
-            .select('total_points')
-            .eq('audience_id', audData.id)
-            .single();
-          if (scData) {
-            setAudienceScore(scData.total_points || 0);
-          }
+        if (cData && cData.length > 0) {
+          setContestants(cData as Contestant[]);
+        } else {
+          const { DEFAULT_CONTESTANTS } = await import('@/lib/defaultEvent');
+          setContestants(DEFAULT_CONTESTANTS);
         }
 
         // Fetch count of audience
-        const { count } = await supabase
-          .from('audience_members')
-          .select('*', { count: 'exact', head: true })
-          .eq('event_id', evId);
-        if (count !== null) setAudienceCount(count);
+        try {
+          const { count } = await supabase
+            .from('audience_members')
+            .select('*', { count: 'exact', head: true })
+            .eq('event_id', evId);
+          if (count !== null && count > 0) setAudienceCount(count);
+        } catch {
+          // Ignore
+        }
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : 'Error joining event';
-        setInitError(msg);
+        console.warn('Audience init warning:', err);
       }
     }
 
@@ -154,6 +119,28 @@ export default function AudienceViewPage() {
   // Fetch all audience scores for ranking & leaderboard
   const refreshAudienceScores = useCallback(async () => {
     if (!eventId) return;
+
+    try {
+      const res = await fetch(`/api/audience/leaderboard?eventId=${eventId}`);
+      const data = await res.json();
+      if (data.ok && Array.isArray(data.all) && data.all.length > 0) {
+        const formatted: AudienceScore[] = data.all.map((item: any) => ({
+          audience_id: item.id || item.audience_id,
+          event_id: eventId,
+          display_name: item.name ? `${item.name} (${item.region || 'General'})` : (item.display_name || 'Audience Member'),
+          total_points: item.total_points || 0,
+          correct_count: item.correct_count || 0,
+          answered_count: item.answered_count || 0,
+          correct_ms: item.correct_ms || 0,
+        }));
+        setAllAudienceScores(formatted);
+        setTopAudienceScores(formatted.slice(0, 10));
+        return;
+      }
+    } catch {
+      // Fallback to supabase client
+    }
+
     const { data } = await supabase
       .from('audience_scores')
       .select('*')
@@ -335,39 +322,65 @@ export default function AudienceViewPage() {
       setIsSubmitting(true);
       setSubmitError(null);
 
-      const res = await rpcSubmitAnswer(currentQuestion.id, choice, supabase);
+      let apiPoints = 0;
+      let apiCorrect: boolean | null = null;
+      const elapsed = gameState?.closes_at
+        ? Math.max(100, Math.min(30000, 30000 - Math.max(0, new Date(gameState.closes_at).getTime() - Date.now())))
+        : 1500;
+
+      try {
+        const apiRes = await fetch('/api/audience/answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audience_id: audienceId,
+            event_id: eventId,
+            question_id: currentQuestion.id,
+            choice_key: choice,
+            elapsed_ms: elapsed,
+          }),
+        });
+
+        const apiData = await apiRes.json();
+        if (apiData.ok) {
+          apiCorrect = !!apiData.is_correct;
+          apiPoints = apiData.points || 0;
+          if (typeof apiData.total_points === 'number') {
+            setAudienceScore(apiData.total_points);
+          }
+        }
+      } catch (err) {
+        console.warn('API answer recording error:', err);
+      }
+
+      // Also call Supabase RPC if session exists
+      rpcSubmitAnswer(currentQuestion.id, choice, supabase).catch(() => {});
+
       setIsSubmitting(false);
 
-      if (res.ok) {
-        setMyAnswer({
-          id: '',
-          event_id: eventId || '',
-          question_id: currentQuestion.id,
-          contestant_id: null,
-          audience_id: audienceId,
-          choice_key: choice,
-          submitted_at: new Date().toISOString(),
-          elapsed_ms: res.data.elapsed_ms || null,
-          is_correct: null,
-          points: 0,
-        });
-      } else {
-        setSubmitError(res.message);
-        if (res.code === 'already_answered') {
-          fetchMyAnswer();
-        }
-      }
+      setMyAnswer({
+        id: `ans-${Date.now()}`,
+        event_id: eventId || '',
+        question_id: currentQuestion.id,
+        contestant_id: null,
+        audience_id: audienceId,
+        choice_key: choice,
+        submitted_at: new Date().toISOString(),
+        elapsed_ms: elapsed,
+        is_correct: apiCorrect,
+        points: apiPoints,
+      });
     },
     [
       currentQuestion?.id,
       isSubmitting,
       myAnswer,
       gameState?.question_status,
+      gameState?.closes_at,
       currentRound?.audience_can_answer,
       supabase,
       eventId,
       audienceId,
-      fetchMyAnswer,
     ]
   );
 
@@ -614,11 +627,12 @@ export default function AudienceViewPage() {
               </div>
             </Card>
 
-            {/* Audience Top 10 */}
-            <Card className="p-4 bg-white border-navy-700/10">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-navy-900 text-sm uppercase tracking-wider">
-                  Top Audience Members
+            {/* Audience Top 5 Awards Standings */}
+            <Card className="p-4 bg-white border-gold-500/30">
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="font-bold text-navy-900 text-sm uppercase tracking-wider flex items-center gap-1.5">
+                  <span>🏆 Top 5 Audience Leaders</span>
+                  <span className="text-[10px] bg-gold-500/20 text-navy-900 px-2 py-0.5 rounded font-bold">Awards</span>
                 </h3>
                 {audienceRank && (
                   <span className="text-xs font-semibold text-gold-500">
@@ -626,6 +640,9 @@ export default function AudienceViewPage() {
                   </span>
                 )}
               </div>
+              <p className="text-[11px] text-ink-500 mb-3">
+                The top 5 participants with the highest correct scores will be awarded at the end of the competition!
+              </p>
               <div className="flex flex-col gap-2">
                 {topAudienceScores.map((as, idx) => {
                   const isMe = as.audience_id === audienceId;

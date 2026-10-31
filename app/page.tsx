@@ -14,10 +14,6 @@ export default function LandingPage() {
         <p className="mt-4 text-ink-500 text-lg sm:text-xl font-medium tracking-wide">
           Ondo & Ekiti Camp Meeting
         </p>
-        <div className="mt-2 inline-flex items-center gap-2 bg-gold-100/80 border border-gold-300 text-gold-900 px-3.5 py-1 rounded-full text-xs sm:text-sm font-semibold">
-          <span>Official Event Code:</span>
-          <strong className="font-mono tracking-widest text-navy-950 font-extrabold text-sm sm:text-base">GIANT</strong>
-        </div>
       </header>
 
       {/* Center Action Buttons */}

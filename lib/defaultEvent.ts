@@ -503,3 +503,4 @@ export const DEFAULT_GAME_STATE: GameState = {
   version: 1,
   updated_at: new Date().toISOString(),
 };
+

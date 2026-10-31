@@ -59,6 +59,8 @@ export interface AudienceMember {
   event_id: string;
   auth_user_id: string;
   display_name: string;
+  phone?: string | null;
+  region?: string | null;
   joined_at: string;
 }
 
@@ -143,6 +145,8 @@ export interface AudienceScore {
   audience_id: string;
   event_id: string;
   display_name: string;
+  phone?: string | null;
+  region?: string | null;
   total_points: number;
   correct_count: number;
   answered_count: number;

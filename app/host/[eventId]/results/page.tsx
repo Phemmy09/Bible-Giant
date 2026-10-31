@@ -44,6 +44,19 @@ export default function HostEventResultsPage() {
   const [rounds, setRounds] = useState<Round[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<Answer[]>([]);
+  const [top5Audience, setTop5Audience] = useState<Array<{
+    rank: number;
+    id: string;
+    name: string;
+    phone: string;
+    region: string;
+    total_points: number;
+    correct_count: number;
+    correct_ms: number;
+  }>>([]);
+  const [fullAudience, setFullAudience] = useState<any[]>([]);
+  const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
+  const [showAudienceAnswers, setShowAudienceAnswers] = useState(false);
 
   // UI state
   const [isLoading, setIsLoading] = useState(true);
@@ -96,6 +109,18 @@ export default function HostEventResultsPage() {
       if (qRes.data) setQuestions(qRes.data as Question[]);
       if (ansRes.data) setAnswers(ansRes.data as Answer[]);
       if (gsRes.data?.screen) setScreenMode(gsRes.data.screen as ScreenMode);
+
+      // Fetch Audience Leaderboard with Phone Numbers & Points
+      try {
+        const lbRes = await fetch(`/api/audience/leaderboard?eventId=${eventId}`);
+        const lbData = await lbRes.json();
+        if (lbData.ok) {
+          if (Array.isArray(lbData.top5)) setTop5Audience(lbData.top5);
+          if (Array.isArray(lbData.all)) setFullAudience(lbData.all);
+        }
+      } catch (err) {
+        console.warn('Audience leaderboard load warning:', err);
+      }
     } catch {
       setActionNotice({ type: 'error', message: 'Failed to load results data.' });
     } finally {
@@ -249,16 +274,41 @@ export default function HostEventResultsPage() {
         };
       });
 
-    // 3. Audience Top 20
-    const audienceRows = audienceScores.slice(0, 20).map((as, idx) => ({
+    // 3. Audience Directory & Scoring
+    const audDataList = fullAudience.length > 0 ? fullAudience : audienceScores;
+    const audienceRows = audDataList.map((as: any, idx: number) => ({
       Rank: idx + 1,
-      Audience_Name: as.display_name,
-      Total_Points: as.total_points,
-      Correct_Count: as.correct_count,
-      Speed_Sec: (as.correct_ms / 1000).toFixed(2),
+      Audience_Name: as.name || as.display_name,
+      Phone_Number: as.phone || '',
+      Region: as.region || 'General',
+      Total_Points: as.total_points || 0,
+      Correct_Count: as.correct_count || 0,
+      Speed_Sec: ((as.correct_ms || 0) / 1000).toFixed(2),
     }));
 
-    // 4. Score Adjustments
+    // 4. Detailed Audience Answers (Backend Visibility Only)
+    const audienceAnswerRows = answers
+      .filter((a) => a.audience_id)
+      .map((a) => {
+        const q = qMap.get(a.question_id);
+        const r = q ? rMap.get(q.round_id) : null;
+        const aud = fullAudience.find((m: any) => m.id === a.audience_id || m.audience_id === a.audience_id);
+
+        return {
+          Round: r?.title || 'Unknown',
+          Question_Number: q?.position || '',
+          Question_Text: q?.body || '',
+          Audience_Name: aud?.name || aud?.display_name || a.audience_id,
+          Audience_Phone: aud?.phone || '',
+          Audience_Region: aud?.region || '',
+          Choice_Key: a.choice_key || '',
+          Elapsed_Sec: a.elapsed_ms !== null ? (a.elapsed_ms / 1000).toFixed(2) : '',
+          Is_Correct: a.is_correct === true ? 'YES' : a.is_correct === false ? 'NO' : '',
+          Points: a.points,
+        };
+      });
+
+    // 5. Score Adjustments
     const adjustmentRows = adjustments.map((adj) => {
       const c = cMap.get(adj.contestant_id);
       return {
@@ -279,11 +329,14 @@ export default function HostEventResultsPage() {
       `--- FINAL CONTESTANT STANDINGS ---`,
       Papa.unparse(leaderboardRows),
       ``,
-      `--- DETAILED PER-QUESTION ANSWERS ---`,
+      `--- DETAILED PER-QUESTION CONTESTANT ANSWERS ---`,
       Papa.unparse(answerRows),
       ``,
-      `--- TOP AUDIENCE MEMBERS ---`,
+      `--- ALL REGISTERED AUDIENCE & AWARDS STANDINGS ---`,
       Papa.unparse(audienceRows),
+      ``,
+      `--- DETAILED AUDIENCE ANSWERS (BACKEND ONLY) ---`,
+      Papa.unparse(audienceAnswerRows),
       ``,
       `--- SCORE ADJUSTMENTS LOG ---`,
       Papa.unparse(adjustmentRows),
@@ -588,48 +641,178 @@ export default function HostEventResultsPage() {
 
         {/* SECTION 3: AUDIENCE STANDINGS & RAFFLE HISTORY */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top Audience Standings */}
-          <Card className="p-6 bg-white border-navy-700/10 shadow-soft flex flex-col justify-between">
+          {/* Top 5 Audience Award Winners */}
+          <Card className="p-6 bg-white border-gold-500/40 shadow-soft flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-navy-700/10 mb-4">
                 <div>
-                  <h3 className="font-display text-xl font-bold text-navy-900">
-                    Audience Leaderboard
+                  <h3 className="font-display text-xl font-bold text-navy-900 flex items-center gap-2">
+                    <span>🏆 Top 5 Audience Award Winners</span>
                   </h3>
-                  <p className="text-xs text-ink-500">
-                    Top 10 highest-scoring audience participants
+                  <p className="text-xs text-ink-500 mt-0.5">
+                    Official prize winners to be contacted and awarded at the close of the competition
                   </p>
                 </div>
                 <span className="text-xs font-mono font-semibold text-ink-500 bg-cream-100 px-2 py-0.5 rounded">
-                  {audienceScores.length} members
+                  {fullAudience.length > 0 ? fullAudience.length : audienceScores.length} registered
                 </span>
               </div>
 
-              <div className="space-y-2">
-                {audienceScores.slice(0, 10).map((as, idx) => (
-                  <div
-                    key={as.audience_id}
-                    className="flex items-center justify-between p-2.5 rounded bg-cream-50 border border-navy-700/5 text-sm"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono font-bold text-xs text-ink-500 w-5">
-                        #{idx + 1}
-                      </span>
-                      <span className="font-bold text-navy-900">
-                        {as.display_name}
-                      </span>
+              {top5Audience.length === 0 && audienceScores.length === 0 ? (
+                <div className="text-center py-8 text-ink-500 text-xs">
+                  No audience submissions recorded yet. Audience members can join using the event code.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {(top5Audience.length > 0
+                    ? top5Audience
+                    : audienceScores.slice(0, 5).map((as, idx) => ({
+                        rank: idx + 1,
+                        id: as.audience_id,
+                        name: as.display_name,
+                        phone: '',
+                        region: 'General',
+                        total_points: as.total_points,
+                        correct_count: as.correct_count,
+                        correct_ms: as.correct_ms,
+                      }))
+                  ).map((winner) => (
+                    <div
+                      key={winner.id}
+                      className="p-3.5 rounded-card bg-cream-50 border border-gold-500/30 flex flex-col gap-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className={`w-7 h-7 rounded-full flex items-center justify-center font-mono font-bold text-xs ${
+                              winner.rank === 1
+                                ? 'bg-gold-500 text-navy-950 shadow-soft'
+                                : winner.rank === 2
+                                ? 'bg-slate-300 text-navy-950'
+                                : winner.rank === 3
+                                ? 'bg-amber-600 text-cream-50'
+                                : 'bg-navy-900 text-cream-50'
+                            }`}
+                          >
+                            #{winner.rank}
+                          </span>
+                          <div>
+                            <span className="font-bold text-navy-900 text-sm block">
+                              {winner.name}
+                            </span>
+                            <span className="text-[11px] text-ink-500 font-medium">
+                              {winner.region || 'General'}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="font-display font-extrabold text-navy-900 text-base tabular-nums">
+                            {winner.total_points} pts
+                          </span>
+                          <span className="text-[10px] text-ink-500 block">
+                            {winner.correct_count} correct
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Phone Contact details for Organizer */}
+                      <div className="pt-2 border-t border-navy-700/10 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-ink-500 font-medium">📞 Phone:</span>
+                          {winner.phone ? (
+                            <a
+                              href={`tel:${winner.phone}`}
+                              className="font-mono font-bold text-navy-900 hover:text-gold-600 underline"
+                            >
+                              {winner.phone}
+                            </a>
+                          ) : (
+                            <span className="italic text-ink-500 font-mono text-[11px]">
+                              Not provided
+                            </span>
+                          )}
+                        </div>
+
+                        {winner.phone && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(winner.phone);
+                              setCopiedPhone(winner.phone);
+                              setTimeout(() => setCopiedPhone(null), 2000);
+                            }}
+                            className="px-2 py-0.5 rounded text-[11px] font-bold bg-white border border-navy-700/20 text-navy-900 hover:bg-cream-100 transition-colors"
+                          >
+                            {copiedPhone === winner.phone ? '✓ Copied!' : 'Copy Number'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-xs text-ink-500 font-mono">
-                        {as.correct_count} correct
-                      </span>
-                      <span className="font-display font-extrabold text-navy-900 tabular-nums">
-                        {as.total_points} pts
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              )}
+
+              {/* Toggle to view audience backend answers */}
+              <div className="mt-4 pt-3 border-t border-navy-700/10 flex justify-between items-center">
+                <button
+                  type="button"
+                  onClick={() => setShowAudienceAnswers(!showAudienceAnswers)}
+                  className="text-xs font-semibold text-navy-900 hover:text-gold-600 transition-colors"
+                >
+                  {showAudienceAnswers ? '▲ Hide Audience Answers Log' : '▼ View Audience Answers Log (Backend Only)'}
+                </button>
+                <span className="text-[11px] text-ink-500">
+                  {answers.filter((a) => a.audience_id).length} recorded
+                </span>
               </div>
+
+              {showAudienceAnswers && (
+                <div className="mt-3 max-h-60 overflow-y-auto space-y-2 pr-1">
+                  {answers.filter((a) => a.audience_id).length === 0 ? (
+                    <p className="text-[11px] text-ink-500 italic py-2 text-center">
+                      No audience answers submitted yet.
+                    </p>
+                  ) : (
+                    answers
+                      .filter((a) => a.audience_id)
+                      .slice(0, 30)
+                      .map((ans, idx) => {
+                        const aud = fullAudience.find((m: any) => m.id === ans.audience_id || m.audience_id === ans.audience_id);
+                        const q = questions.find((ques) => ques.id === ans.question_id);
+                        return (
+                          <div
+                            key={ans.id || idx}
+                            className="p-2 rounded bg-cream-50 border border-navy-700/10 text-xs flex items-center justify-between"
+                          >
+                            <div className="truncate max-w-[200px]">
+                              <p className="font-bold text-navy-900 truncate">
+                                {aud?.name || aud?.display_name || 'Audience'}
+                              </p>
+                              <p className="text-[10px] text-ink-500 truncate">
+                                {q ? `Q: ${q.body.slice(0, 35)}…` : 'Question'}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`font-mono font-bold px-1.5 py-0.5 rounded text-[11px] ${
+                                  ans.is_correct
+                                    ? 'bg-success/15 text-success'
+                                    : 'bg-danger/15 text-danger'
+                                }`}
+                              >
+                                {ans.choice_key || '—'}
+                              </span>
+                              <span className="text-ink-500 text-[10px] tabular-nums font-mono">
+                                +{ans.points} pts
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              )}
             </div>
           </Card>
 
