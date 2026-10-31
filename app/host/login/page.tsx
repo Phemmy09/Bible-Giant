@@ -29,15 +29,16 @@ export default function OperatorLoginPage() {
       });
 
       if (authError || !data.user) {
-        setError('Wrong email or password');
+        setError(authError?.message || 'Wrong email or password');
         setIsLoading(false);
         return;
       }
 
       router.push('/host');
       router.refresh();
-    } catch {
-      setError('Wrong email or password');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Connection error. Please try again.';
+      setError(msg);
       setIsLoading(false);
     }
   }
