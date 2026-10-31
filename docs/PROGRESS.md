@@ -451,9 +451,68 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 - Next.js production build verified for all App Router pages.
 
 ### Known Gaps / Risks
-- Final results export page `/host/[eventId]/results` and raffle drawing interface are scheduled for Phase 7.
+- None from Phase 6.
 
 ### Assumptions Made (Q-numbers)
 - None new.
+
+---
+
+## Phase 7 — Winner, Raffle, Results Page, Projector Complete — 2026-10-31
+
+### Built
+- Built S-12 Results page at `/host/[eventId]/results`:
+  - **Summary Cards**:
+    - **Champion Card**: Displays the gold-medal winning contestant (seat number, name, group label, total points, correct answer count, and total response speed) with a one-click button to project the winner celebration on the main hall screen.
+    - **Raffle Card**: Displays raffle draw statistics, latest winner summary, and a button to trigger `rpcHostDrawRaffle` with live confirmation modal.
+    - **Projector Screen Mode Switcher**: Quick-switch buttons for `leaderboard`, `winner`, `raffle`, and `blank` modes with an active indicator.
+    - **Finish Event Action**: Lets the operator officially conclude and freeze the competition state (`finished`).
+  - **Final Contestant Leaderboard Table**:
+    - Ranks all 8 seats using the deterministic 4-tier tie-breaking engine (`computeLeaderboard`).
+    - Displays rank numbers with tie indicators (`=1`, `=2`), seat numbers, contestant names, church group/zone labels, correct answer counts, total correct time in seconds, and total points.
+  - **Top Audience Leaderboard**:
+    - Ranks top 10 audience participants with name, correct answers, and points.
+  - **Raffle Draws History Audit Log**:
+    - Full chronological log of all draws showing winner names, ticket pool categories (`correct_predictors` vs `all_audience`), pool sizes, and exact timestamps.
+  - **Score Adjustments Audit Log**:
+    - Permanent log of all manual operator score adjustments with contestant details, delta points, mandatory reason, and timestamp.
+    - Integrated "+ Add Adjustment" button opening `ScoreAdjustmentModal`.
+  - **CSV Results Exporter**:
+    - Generates and downloads a complete results CSV report via PapaParse containing:
+      1. Final Contestant Standings (Rank, Seat, Name, Group, Total Points, Correct Count, Total Speed).
+      2. Per-Question Detailed Answers (Round, Question #, Question Text, Answer Mode, Contestant Seat, Contestant Name, Choice Key, Elapsed Seconds, Correctness, Points Awarded).
+      3. Top Audience Members (Rank, Display Name, Total Points, Correct Count, Speed).
+      4. Score Adjustments Log (Seat, Contestant, Delta, Reason, Timestamp).
+- Raffle Draw Engine Integration:
+  - Invokes `rpcHostDrawRaffle` which checks correct champion predictors first and falls back to all audience members if exhausted.
+  - Automatically excludes previous winners on subsequent draws, guaranteeing distinct winners (AC-15).
+  - Automatically switches `game_state.screen` to `raffle` so all connected projector and audience screens instantly celebrate the winner.
+- Complete Projector Display Modes (S-13 `/screen/[eventId]`):
+  - Verified and refined all 8 projector modes: `lobby`, `predictions`, `question` (with circular countdown ring and spoken announcement), `answer`, `leaderboard` (with Gold/Silver/Bronze badges and audience sidebar), `winner` (grand champion coronation card), `raffle` (winning ticket reveal), and `blank` (intermission screen).
+
+### Files Changed / Created
+- `app/host/[eventId]/results/page.tsx`
+- `docs/PROGRESS.md`
+
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run test` (`vitest run`): PASSED (5 test files, 11 of 11 tests passing).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd run build` (`next build`): PASSED (All 14 routes compiled cleanly, including `/host/[eventId]/results`).
+
+### Tests Run and Results
+- `tests/unit/scoring.test.ts`: U-01, U-02, U-03 passing.
+- `tests/unit/errors.test.ts`: U-05 passing.
+- `tests/unit/csv.test.ts`: U-04 passing.
+- `tests/unit/join-code.test.ts`: U-06 passing.
+- `tests/unit/security-static.test.ts`: SEC-12 passing.
+- Next.js production build verified for all App Router pages and middleware.
+
+### Known Gaps / Risks
+- Phase 8 will focus on hardening, error/404 handling, offline banners, full accessibility pass, and deployment runbooks.
+
+### Assumptions Made (Q-numbers)
+- None new.
+
 
 
