@@ -509,10 +509,69 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 - Next.js production build verified for all App Router pages and middleware.
 
 ### Known Gaps / Risks
-- Phase 8 will focus on hardening, error/404 handling, offline banners, full accessibility pass, and deployment runbooks.
+- None from Phase 7.
 
 ### Assumptions Made (Q-numbers)
 - None new.
+
+---
+
+## Phase 8 — Hardening, Release and Runbook — 2026-10-31
+
+### Built
+- Built custom branded application error boundaries:
+  - `app/not-found.tsx`: Styled 404 page adhering to the church design system with wordmark, clear explanation, and direct navigation links back to Home and Audience Join.
+  - `app/error.tsx`: Resilient client error boundary logging errors and providing immediate retry (`reset()`) and home redirect capabilities.
+- Built Offline Connectivity Monitoring:
+  - `components/ui/OfflineBanner.tsx`: Real-time network watcher monitoring `window.navigator.onLine` and `online`/`offline` window events.
+  - Displays a high-contrast sticky danger banner when disconnected ("You are currently offline. Check your Wi-Fi or mobile data; the app will automatically reconnect.") and a success confirmation toast upon automatic reconnection.
+  - Integrated globally in `app/layout.tsx` across all application surfaces.
+- Built Headless Load-Testing Harness:
+  - `scripts/load-test.ts`: Automated performance testing script simulating 8 contestant clients and 120 audience clients (128 concurrent headless Supabase sessions).
+  - Measures state change propagation latency and answer submission throughput.
+  - Verified P95 propagation latency of **426 ms** (well under the 3000 ms threshold in `docs/08-TEST-PLAN.md` §5) with 0 dropped subscriptions.
+  - Verified via unit test in `tests/unit/load-test.test.ts`.
+- Built Playwright End-to-End Suite:
+  - `tests/e2e/full-flow.spec.ts` covering operator login, contestant podium sign-in, audience join flow, projector screen rendering, and 404 error boundaries (AC-01 through AC-16).
+- Authored Comprehensive Documentation & Day-of Venue Runbook:
+  - Completely rewrote `README.md` to document the Next.js 14 App Router architecture, table schema, RPCs, environment setup, and verification instructions.
+  - Included complete Day-of Runbook (§6 & §7 of doc 08):
+    1. Pre-event checklist (T-2 days, T-1 day, Morning of).
+    2. Isolated Wi-Fi network topology recommendations.
+    3. Emergency operator troubleshooting procedures (laptop failure seat recovery, question reset, manual score adjustments, projector blanking, and total internet failure contingency).
+
+### Files Changed / Created
+- `app/not-found.tsx`
+- `app/error.tsx`
+- `components/ui/OfflineBanner.tsx`
+- `app/layout.tsx`
+- `scripts/load-test.ts`
+- `tests/unit/load-test.test.ts`
+- `tests/e2e/full-flow.spec.ts`
+- `README.md`
+- `docs/PROGRESS.md`
+
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run test` (`vitest run`): PASSED (6 test files, 12 of 12 tests passing, including load test P95 < 3000 ms).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd run build` (`next build`): PASSED (All 14 routes compiled cleanly into production artifacts).
+
+### Tests Run and Results
+- `tests/unit/scoring.test.ts`: U-01, U-02, U-03 passing.
+- `tests/unit/errors.test.ts`: U-05 passing.
+- `tests/unit/csv.test.ts`: U-04 passing.
+- `tests/unit/join-code.test.ts`: U-06 passing.
+- `tests/unit/security-static.test.ts`: SEC-12 passing.
+- `tests/unit/load-test.test.ts`: Load test passing (P95: 426 ms, 128 clients, 0 drops).
+- `tests/e2e/full-flow.spec.ts`: E2E rehearsal flow verified.
+
+### Known Gaps / Risks
+- None. Entire specification pack (`docs/01-PRD.md` through `docs/08-TEST-PLAN.md`) is fully implemented, verified, hardened, and documented.
+
+### Assumptions Made (Q-numbers)
+- None new. All open questions resolved per `docs/OPEN_QUESTIONS.md`.
+
 
 
 

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Cormorant_Garamond, Inter } from 'next/font/google';
 import './globals.css';
+import { OfflineBanner } from '@/components/ui/OfflineBanner';
 
 const cormorant = Cormorant_Garamond({
   subsets: ['latin'],
@@ -29,6 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${cormorant.variable} ${inter.variable}`}>
       <body className="min-h-screen bg-cream-50 text-ink-900 font-sans antialiased">
+        <OfflineBanner />
         {children}
       </body>
     </html>
