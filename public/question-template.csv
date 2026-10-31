@@ -1,0 +1,5 @@
+round_position,round_title,round_type,question,option_a,option_b,option_c,option_d,option_e,correct,scripture_ref,explanation,assigned_seat,answer_mode
+1,General Knowledge,speed,"In the beginning was the Word, and the Word was with God, and the Word was God.",Jesus,Moses,Abraham,David,,A,John 1:1,The Word refers to Jesus Christ from eternity.,,choice
+1,General Knowledge,speed,How many days and nights did it rain during the great flood in the days of Noah?,30,40,50,7,12,B,Genesis 7:12,The rain was upon the earth forty days and forty nights.,,choice
+2,Challengers Round,individual,Who was caught up into heaven in a whirlwind by a chariot of fire?,Elijah,Elisha,Enoch,Isaiah,,A,2 Kings 2:11,Elijah went up by a whirlwind into heaven.,1,choice
+

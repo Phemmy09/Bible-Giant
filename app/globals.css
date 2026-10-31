@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-inter: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-cormorant: 'Cormorant Garamond', Georgia, serif;
+}
+
+body {
+  color: #1B2330;
+  background-color: #FFFDF7;
+  font-family: var(--font-inter);
+  margin: 0;
+  padding: 0;
+}
+
+/* Custom soft shadow and utilities per doc 06 */
+.shadow-soft {
+  box-shadow: 0 6px 24px rgba(11, 31, 58, 0.10);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
