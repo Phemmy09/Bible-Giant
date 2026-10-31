@@ -110,3 +110,4 @@ export function getAllAudienceMembers(eventId: string): RegisteredAudience[] {
     (a) => a.event_id === eventId
   );
 }
+

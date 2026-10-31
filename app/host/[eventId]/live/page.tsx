@@ -33,6 +33,9 @@ import { Card } from '@/components/ui/Card';
 import { Countdown } from '@/components/ui/Countdown';
 import { Modal } from '@/components/ui/Modal';
 import { ScoreAdjustmentModal } from '@/components/host/ScoreAdjustmentModal';
+import { QuestionDocumentUploadModal } from '@/components/host/QuestionDocumentUploadModal';
+import { Soundboard } from '@/components/host/Soundboard';
+import { soundEngine } from '@/lib/soundEngine';
 
 export default function HostLiveConsolePage() {
   const params = useParams();
@@ -51,6 +54,7 @@ export default function HostLiveConsolePage() {
   const [contestants, setContestants] = useState<Contestant[]>([]);
   const [connectedContestants, setConnectedContestants] = useState<Set<string>>(new Set());
   const [audienceCount, setAudienceCount] = useState<number>(0);
+  const [liveAudienceList, setLiveAudienceList] = useState<any[]>([]);
 
   // Live answers & scores for current question
   const [currentAnswers, setCurrentAnswers] = useState<Answer[]>([]);
@@ -63,6 +67,9 @@ export default function HostLiveConsolePage() {
   const [isCallingRpc, setIsCallingRpc] = useState(false);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
+  const [docUploadOpen, setDocUploadOpen] = useState(false);
+  const [autoBroadcastOnSelect, setAutoBroadcastOnSelect] = useState(true);
+  const [showAudienceLiveFeed, setShowAudienceLiveFeed] = useState(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
   const autoLockCalledRef = useRef(false);
@@ -237,7 +244,29 @@ export default function HostLiveConsolePage() {
     }
   }, [qStatus, gameState?.closes_at, eventId, getServerNow, supabase, refetch]);
 
-  // Stage transition step handlers
+  // Continuous sync of registered and live audience members
+  useEffect(() => {
+    async function syncAudience() {
+      try {
+        const res = await fetch(`/api/audience/leaderboard?eventId=${eventId}`);
+        const data = await res.json();
+        if (data.ok) {
+          if (typeof data.total_registered === 'number') {
+            setAudienceCount(data.total_registered);
+          }
+          if (Array.isArray(data.all)) {
+            setLiveAudienceList(data.all);
+          }
+        }
+      } catch {}
+    }
+
+    syncAudience();
+    const interval = setInterval(syncAudience, 4000);
+    return () => clearInterval(interval);
+  }, [eventId]);
+
+  // Stage transition step handlers with audio cue integration
   async function handleShow() {
     if (!activeQuestionId) return;
     setIsCallingRpc(true);
@@ -245,7 +274,41 @@ export default function HostLiveConsolePage() {
     const res = await rpcHostShowQuestion(eventId, activeQuestionId, supabase);
     setIsCallingRpc(false);
     if (!res.ok) setErrorNotice(res.message);
-    else refetch();
+    else {
+      refetch();
+      soundEngine?.playCue('tick');
+    }
+  }
+
+  // Instant switch and broadcast to all screens
+  async function handleSwitchAndShowQuestion(qId: string) {
+    setSelectedQuestionId(qId);
+    setIsCallingRpc(true);
+    setErrorNotice(null);
+    const res = await rpcHostShowQuestion(eventId, qId, supabase);
+    setIsCallingRpc(false);
+    if (!res.ok) {
+      setErrorNotice(res.message);
+    } else {
+      refetch();
+      fetchAnswersAndScores();
+      soundEngine?.playCue('tick');
+    }
+  }
+
+  function handleSelectQuestion(qId: string) {
+    if (autoBroadcastOnSelect) {
+      handleSwitchAndShowQuestion(qId);
+    } else {
+      setSelectedQuestionId(qId);
+    }
+  }
+
+  async function handleToggleScreenOutput() {
+    const isCurrentlyBlank = gameState?.screen === 'blank';
+    const targetMode: ScreenMode = isCurrentlyBlank ? 'question' : 'blank';
+    await rpcHostSetScreen(eventId, targetMode, supabase);
+    refetch();
   }
 
   async function handleOpen() {
@@ -254,7 +317,10 @@ export default function HostLiveConsolePage() {
     const res = await rpcHostOpenQuestion(eventId, supabase);
     setIsCallingRpc(false);
     if (!res.ok) setErrorNotice(res.message);
-    else refetch();
+    else {
+      refetch();
+      soundEngine?.playCue('tick');
+    }
   }
 
   async function handleLock() {
@@ -263,7 +329,10 @@ export default function HostLiveConsolePage() {
     const res = await rpcHostLockQuestion(eventId, supabase);
     setIsCallingRpc(false);
     if (!res.ok) setErrorNotice(res.message);
-    else refetch();
+    else {
+      refetch();
+      soundEngine?.playCue('gong');
+    }
   }
 
   async function handleReveal() {
@@ -275,6 +344,10 @@ export default function HostLiveConsolePage() {
     else {
       refetch();
       fetchAnswersAndScores();
+      soundEngine?.playCue('drumroll');
+      setTimeout(() => {
+        soundEngine?.playCue('correct');
+      }, 700);
     }
   }
 
@@ -304,6 +377,7 @@ export default function HostLiveConsolePage() {
     else {
       refetch();
       fetchAnswersAndScores();
+      soundEngine?.playCue(isCorrect ? 'correct' : 'incorrect');
     }
   }
 
@@ -336,11 +410,14 @@ export default function HostLiveConsolePage() {
   // Next question logic (selects the first unplayed question)
   function handleSelectNextUnplayed() {
     const unplayed = questions.find((q) => {
-      // Find question without answers
       return q.id !== gameState?.current_question_id;
     });
     if (unplayed) {
-      setSelectedQuestionId(unplayed.id);
+      if (autoBroadcastOnSelect) {
+        handleSwitchAndShowQuestion(unplayed.id);
+      } else {
+        setSelectedQuestionId(unplayed.id);
+      }
     }
   }
 
@@ -353,9 +430,29 @@ export default function HostLiveConsolePage() {
     return map;
   }, [currentAnswers]);
 
-  const audienceAnswersCount = useMemo(() => {
-    return currentAnswers.filter((a) => a.audience_id).length;
+  const audienceAnswers = useMemo(() => {
+    return currentAnswers.filter((a) => a.audience_id);
   }, [currentAnswers]);
+
+  const audienceAnswersCount = audienceAnswers.length;
+
+  const audienceDistribution = useMemo(() => {
+    const counts = { A: 0, B: 0, C: 0, D: 0 };
+    audienceAnswers.forEach((a) => {
+      const k = a.choice_key as 'A' | 'B' | 'C' | 'D';
+      if (counts[k] !== undefined) counts[k]++;
+    });
+    const total = audienceAnswers.length || 1;
+    return {
+      counts,
+      percentages: {
+        A: Math.round((counts.A / total) * 100),
+        B: Math.round((counts.B / total) * 100),
+        C: Math.round((counts.C / total) * 100),
+        D: Math.round((counts.D / total) * 100),
+      },
+    };
+  }, [audienceAnswers]);
 
   return (
     <div className="min-h-screen bg-cream-50 flex flex-col text-ink-900 select-none">
@@ -375,7 +472,7 @@ export default function HostLiveConsolePage() {
           <ConnectionDot status={connectionStatus} className="text-gold-300 ml-2" />
         </div>
 
-        <div className="flex items-center gap-4 text-xs sm:text-sm">
+        <div className="flex items-center gap-3 text-xs sm:text-sm">
           <div className="flex items-center gap-1.5">
             <span className="text-gold-300 font-medium">Contestants:</span>
             <span className="font-mono font-bold text-cream-50">
@@ -384,9 +481,31 @@ export default function HostLiveConsolePage() {
           </div>
           <div className="h-4 w-px bg-navy-700" />
           <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
             <span className="text-gold-300 font-medium">Audience:</span>
-            <span className="font-mono font-bold text-cream-50">{audienceCount}</span>
+            <span className="font-mono font-bold text-cream-50">{audienceCount} live</span>
           </div>
+          <div className="h-4 w-px bg-navy-700" />
+          <button
+            type="button"
+            onClick={handleToggleScreenOutput}
+            className={`px-2.5 py-1 rounded font-bold text-xs transition-colors flex items-center gap-1.5 ${
+              gameState?.screen === 'blank'
+                ? 'bg-danger/20 border border-danger text-danger hover:bg-danger/30'
+                : 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 hover:bg-emerald-900'
+            }`}
+          >
+            <span>{gameState?.screen === 'blank' ? '⚫ Screen: Off (Blank)' : '🟢 Screen: Live'}</span>
+          </button>
+          <div className="h-4 w-px bg-navy-700" />
+          <button
+            type="button"
+            onClick={() => setDocUploadOpen(true)}
+            className="px-2.5 py-1 rounded bg-navy-800 border border-gold-500/40 text-gold-300 font-bold text-xs hover:bg-navy-700 transition-colors flex items-center gap-1.5"
+          >
+            <span>📄</span>
+            <span>Upload Questions</span>
+          </button>
           <div className="h-4 w-px bg-navy-700" />
           <button
             type="button"
@@ -417,12 +536,42 @@ export default function HostLiveConsolePage() {
       {/* 2. THREE-COLUMN LIVE ENGINE LAYOUT */}
       <div className="flex-1 grid grid-cols-12 gap-4 p-4 max-w-[1600px] w-full mx-auto">
         {/* COLUMN 1: RUN ORDER (3 COLS) */}
-        <div className="col-span-12 lg:col-span-3 flex flex-col gap-3 max-h-[82vh] overflow-y-auto pr-1">
+        <div className="col-span-12 lg:col-span-3 flex flex-col gap-3 max-h-[85vh] overflow-y-auto pr-1">
           <div className="flex items-center justify-between pb-2 border-b border-navy-700/15">
-            <h3 className="font-display text-lg font-bold text-navy-900">Run Order</h3>
-            <span className="text-xs font-semibold text-ink-500">
-              {questions.length} questions
-            </span>
+            <div>
+              <h3 className="font-display text-lg font-bold text-navy-900">Run Order</h3>
+              <span className="text-xs font-semibold text-ink-500">
+                {questions.length} questions
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDocUploadOpen(true)}
+              className="px-2.5 py-1 rounded bg-gold-500 hover:bg-gold-400 text-navy-950 text-xs font-bold transition-all shadow-xs"
+            >
+              + Upload Docs
+            </button>
+          </div>
+
+          {/* Instant Live Broadcast Switch on Select Toggle */}
+          <div className="p-2.5 rounded bg-cream-100 border border-navy-700/10 flex items-center justify-between text-xs">
+            <div>
+              <span className="font-bold text-navy-900 block">⚡ Instant Live on Click</span>
+              <span className="text-[10px] text-ink-500">
+                {autoBroadcastOnSelect ? 'Clicking question broadcasts live to all screens' : 'Clicking question only previews in console'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAutoBroadcastOnSelect(!autoBroadcastOnSelect)}
+              className={`px-2.5 py-1 rounded text-xs font-bold transition-colors ${
+                autoBroadcastOnSelect
+                  ? 'bg-success text-white shadow-xs'
+                  : 'bg-cream-200 text-ink-600'
+              }`}
+            >
+              {autoBroadcastOnSelect ? 'ON' : 'OFF'}
+            </button>
           </div>
 
           <div className="space-y-4">
@@ -446,14 +595,10 @@ export default function HostLiveConsolePage() {
                       return (
                         <div
                           key={q.id}
-                          onClick={() => {
-                            if (qStatus === 'hidden' || qStatus === 'revealed') {
-                              setSelectedQuestionId(q.id);
-                            }
-                          }}
+                          onClick={() => handleSelectQuestion(q.id)}
                           className={`p-2.5 rounded-btn border text-xs transition-all cursor-pointer flex items-center justify-between gap-2 ${
                             isCurrent
-                              ? 'bg-gold-500/20 border-gold-500 font-bold text-navy-900 shadow-sm'
+                              ? 'bg-gold-500/20 border-gold-500 font-bold text-navy-900 shadow-sm ring-1 ring-gold-500'
                               : isSelected
                               ? 'bg-white border-navy-900 font-semibold'
                               : 'bg-white border-navy-700/15 hover:border-gold-500/50'
@@ -464,7 +609,7 @@ export default function HostLiveConsolePage() {
                             <span className="truncate">{q.body}</span>
                           </div>
                           {isCurrent && (
-                            <span className="text-[10px] uppercase font-extrabold text-gold-500 px-1.5 py-0.5 bg-navy-900 rounded">
+                            <span className="text-[10px] uppercase font-extrabold text-gold-500 px-1.5 py-0.5 bg-navy-900 rounded shrink-0">
                               Live
                             </span>
                           )}
@@ -483,6 +628,25 @@ export default function HostLiveConsolePage() {
           {/* Main Question Card */}
           <Card className="bg-white p-6 shadow-soft flex flex-col justify-between min-h-[380px] border border-navy-700/15">
             <div>
+              {/* Question Switch Notice */}
+              {selectedQuestionId && selectedQuestionId !== gameState?.current_question_id && (
+                <div className="mb-3 p-3 bg-amber-500/15 border border-amber-500/40 rounded-btn flex items-center justify-between animate-fade-in">
+                  <div>
+                    <span className="text-xs font-bold text-navy-900 block">Selected question is not yet live on stage</span>
+                    <span className="text-[11px] text-ink-500">Click below to switch and broadcast live across projector, audience, and contestant screens.</span>
+                  </div>
+                  <Button
+                    variant="gold"
+                    size="md"
+                    onClick={() => handleSwitchAndShowQuestion(selectedQuestionId)}
+                    disabled={isCallingRpc}
+                    className="font-bold shadow-soft whitespace-nowrap text-xs py-1.5 px-3"
+                  >
+                    ⚡ Broadcast Live Now
+                  </Button>
+                </div>
+              )}
+
               {/* Question Header */}
               <div className="flex items-center justify-between mb-3 border-b border-navy-700/10 pb-3">
                 <div className="flex items-center gap-2">
@@ -709,6 +873,8 @@ export default function HostLiveConsolePage() {
               })}
             </div>
           </Card>
+          {/* Live Soundboard & Classical Audio */}
+          <Soundboard />
         </div>
 
         {/* COLUMN 3: CONTESTANTS ANSWER PANEL (3 COLS) */}
@@ -782,13 +948,15 @@ export default function HostLiveConsolePage() {
             </div>
           </Card>
 
-          {/* Audience Mini-Panel */}
+          {/* Audience Mini-Panel & Real-Time Answer Distribution */}
           <Card className="bg-white p-4 shadow-soft">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-navy-900 uppercase tracking-wider">
                 Audience Activity
               </span>
-              <span className="font-semibold text-gold-500">Live</span>
+              <span className="font-semibold text-gold-500 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" /> Live
+              </span>
             </div>
             <div className="grid grid-cols-2 gap-3 mt-3 text-center">
               <div className="p-3 bg-cream-100 rounded-btn border border-navy-700/10">
@@ -801,6 +969,72 @@ export default function HostLiveConsolePage() {
                   {audienceAnswersCount}
                 </p>
               </div>
+            </div>
+
+            {/* Live Vote Distribution Bars */}
+            {activeQuestion?.answer_mode === 'choice' && (
+              <div className="mt-4 pt-3 border-t border-navy-700/10 space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-ink-500 block">
+                  Live Vote Distribution
+                </span>
+                {(['A', 'B', 'C', 'D'] as const).map((opt) => (
+                  <div key={opt} className="flex items-center gap-2 text-xs">
+                    <span className="font-mono font-bold w-4 text-navy-900">{opt}</span>
+                    <div className="flex-1 bg-cream-100 rounded-full h-3 overflow-hidden border border-navy-700/10">
+                      <div
+                        className="bg-gold-500 h-full transition-all duration-300"
+                        style={{ width: `${audienceDistribution.percentages[opt]}%` }}
+                      />
+                    </div>
+                    <span className="font-mono text-[10px] text-ink-500 w-16 text-right">
+                      {audienceDistribution.percentages[opt]}% ({audienceDistribution.counts[opt]})
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Real-time Audience Feed Toggle */}
+            <div className="mt-4 pt-3 border-t border-navy-700/10">
+              <button
+                type="button"
+                onClick={() => setShowAudienceLiveFeed(!showAudienceLiveFeed)}
+                className="text-xs font-semibold text-navy-900 hover:text-gold-600 w-full flex items-center justify-between"
+              >
+                <span>{showAudienceLiveFeed ? '▲ Hide Live Audience Feed' : '▼ Live Audience Submissions Feed'}</span>
+                <span className="text-[10px] font-mono font-bold bg-cream-100 px-1.5 py-0.5 rounded text-navy-900">
+                  {audienceAnswers.length}
+                </span>
+              </button>
+
+              {showAudienceLiveFeed && (
+                <div className="mt-2.5 max-h-52 overflow-y-auto space-y-1.5 pr-1 text-xs">
+                  {audienceAnswers.length === 0 ? (
+                    <p className="text-[11px] text-ink-500 italic py-2 text-center">
+                      Awaiting audience answers…
+                    </p>
+                  ) : (
+                    audienceAnswers.map((ans, idx) => {
+                      const aud = liveAudienceList.find(
+                        (m) => m.id === ans.audience_id || m.audience_id === ans.audience_id
+                      );
+                      return (
+                        <div
+                          key={ans.id || idx}
+                          className="p-2 rounded bg-cream-50 border border-navy-700/10 flex items-center justify-between text-[11px]"
+                        >
+                          <span className="font-semibold text-navy-900 truncate max-w-[130px]">
+                            {aud?.name || aud?.display_name || 'Audience Member'}
+                          </span>
+                          <span className="font-mono font-bold px-1.5 py-0.5 rounded bg-cream-100 text-navy-900">
+                            Choice {ans.choice_key}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
           </Card>
         </div>
@@ -835,6 +1069,18 @@ export default function HostLiveConsolePage() {
         onClose={() => setAdjustModalOpen(false)}
         onAdjusted={() => {
           fetchAnswersAndScores();
+          refetch();
+        }}
+      />
+
+      {/* Upload Questions Document Modal (PDF, DOCX, Sheets, CSV) */}
+      <QuestionDocumentUploadModal
+        isOpen={docUploadOpen}
+        onClose={() => setDocUploadOpen(false)}
+        eventId={eventId}
+        rounds={rounds}
+        onSuccess={() => {
+          fetchSetupData();
           refetch();
         }}
       />

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { QuestionDocumentUploadModal } from '@/components/host/QuestionDocumentUploadModal';
 import { QuestionCsvImportModal } from '@/components/host/QuestionCsvImportModal';
 
 export default function RoundsAndQuestionsPage() {
@@ -488,8 +489,13 @@ export default function RoundsAndQuestionsPage() {
           </div>
 
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="md" onClick={() => setCsvModalOpen(true)}>
-              📥 Import CSV
+            <Button
+              variant="primary"
+              size="md"
+              onClick={() => setCsvModalOpen(true)}
+              className="font-bold flex items-center gap-1.5"
+            >
+              <span>📄 Upload Questions (PDF, DOCX, Sheets, CSV)</span>
             </Button>
             <Button variant="gold" size="md" onClick={openAddRoundModal}>
               + Add Round
@@ -744,14 +750,12 @@ export default function RoundsAndQuestionsPage() {
         </div>
       </main>
 
-      {/* CSV Import Modal */}
-      <QuestionCsvImportModal
+      {/* Document / Question Import Modal (PDF, DOCX, Sheets, CSV) */}
+      <QuestionDocumentUploadModal
         isOpen={csvModalOpen}
         onClose={() => setCsvModalOpen(false)}
         eventId={eventId}
         rounds={rounds}
-        contestants={contestants}
-        supabase={supabase}
         onSuccess={() => {
           fetchEventData();
         }}
