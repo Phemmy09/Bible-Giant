@@ -4,14 +4,30 @@ import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Button } from '@/lib/../components/ui/Button';
+import { Button } from '@/components/ui/Button';
 
 export function HostHeader({ eventName }: { eventName?: string }) {
   const router = useRouter();
   const supabase = createClient();
 
   async function handleSignOut() {
-    await supabase.auth.signOut();
+    // 1. Clear client cookie
+    document.cookie = 'operator_session=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+
+    // 2. Call server route to clear HTTP cookie
+    try {
+      await fetch('/api/auth/operator-logout', { method: 'POST' });
+    } catch {
+      // Ignore network errors on logout
+    }
+
+    // 3. Clear Supabase auth session
+    try {
+      await supabase.auth.signOut();
+    } catch {
+      // Ignore Supabase sign-out errors
+    }
+
     router.push('/host/login');
     router.refresh();
   }
@@ -48,4 +64,3 @@ export function HostHeader({ eventName }: { eventName?: string }) {
     </header>
   );
 }
-
