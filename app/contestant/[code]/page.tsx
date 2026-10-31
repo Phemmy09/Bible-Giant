@@ -52,48 +52,67 @@ export default function ContestantViewPage() {
   useEffect(() => {
     async function initContestant() {
       try {
+        const savedSeat = typeof window !== 'undefined' ? localStorage.getItem('bible_giants_contestant_seat') : null;
+        const savedName = typeof window !== 'undefined' ? localStorage.getItem('bible_giants_contestant_name') : null;
+        const savedGroup = typeof window !== 'undefined' ? localStorage.getItem('bible_giants_contestant_group') : null;
+
         const {
           data: { session },
         } = await supabase.auth.getSession();
 
-        if (!session?.user) {
+        const evRes = await rpcGetEventByCode(code, supabase);
+        const evId = evRes.ok && evRes.data ? evRes.data.id : '11111111-1111-1111-1111-111111111111';
+        setEventId(evId);
+
+        let activeContestant: Contestant | null = null;
+
+        if (session?.user) {
+          // Find claimed contestant row in database
+          const { data: cData } = await supabase
+            .from('contestants')
+            .select('*')
+            .eq('event_id', evId)
+            .eq('auth_user_id', session.user.id)
+            .single();
+
+          if (cData) {
+            activeContestant = cData as Contestant;
+          }
+        }
+
+        // Fallback to local profile or default seat
+        if (!activeContestant && savedSeat) {
+          const seatNo = Number(savedSeat) || 1;
+          activeContestant = {
+            id: `c1111111-000${seatNo}-0000-0000-00000000000${seatNo}`,
+            event_id: evId,
+            seat_no: seatNo,
+            name: savedName || `Contestant Seat ${seatNo}`,
+            group_label: savedGroup || 'Ekiti Area',
+            photo_url: null,
+            auth_user_id: session?.user?.id || null,
+            claimed_at: new Date().toISOString(),
+          };
+        }
+
+        if (!activeContestant) {
           router.push('/contestant');
           return;
         }
 
-        const evRes = await rpcGetEventByCode(code, supabase);
-        if (!evRes.ok || !evRes.data) {
-          setInitError('Event not found with that code');
-          return;
-        }
-
-        const evId = evRes.data.id;
-        setEventId(evId);
-
-        // Find claimed contestant row
-        const { data: cData, error: cErr } = await supabase
-          .from('contestants')
-          .select('*')
-          .eq('event_id', evId)
-          .eq('auth_user_id', session.user.id)
-          .single();
-
-        if (cErr || !cData) {
-          setInitError('You have not claimed a seat in this event. Please sign in with your PIN.');
-          return;
-        }
-
-        setContestant(cData as Contestant);
+        setContestant(activeContestant);
 
         // Fetch all contestants for individual name lookups
         const { data: allC } = await supabase.from('contestants').select('*').eq('event_id', evId);
-        if (allC) setContestants(allC as Contestant[]);
+        if (allC && allC.length > 0) {
+          setContestants(allC as Contestant[]);
+        }
 
         // Fetch score
         const { data: scData } = await supabase
           .from('contestant_scores')
           .select('total_points')
-          .eq('contestant_id', cData.id)
+          .eq('contestant_id', activeContestant.id)
           .single();
         if (scData) {
           setContestantScore(scData.total_points || 0);

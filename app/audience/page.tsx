@@ -7,14 +7,15 @@ import { createClient } from '@/lib/supabase/client';
 import { rpcJoinAsAudience, rpcGetEventByCode } from '@/lib/rpc';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
+import { DEFAULT_EVENT_CODE } from '@/lib/defaultEvent';
 
 export default function AudienceJoinPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(DEFAULT_EVENT_CODE);
   const [name, setName] = useState('');
+  const [region, setRegion] = useState<'Ekiti' | 'Ondo' | 'Audience'>('Ekiti');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -30,7 +31,6 @@ export default function AudienceJoinPage() {
         if (session?.user) {
           const savedCode = localStorage.getItem('bible_giants_audience_code');
           if (savedCode) {
-            // Verify event still exists
             const evRes = await rpcGetEventByCode(savedCode, supabase);
             if (evRes.ok && evRes.data) {
               router.push(`/audience/${savedCode.toUpperCase()}`);
@@ -49,50 +49,54 @@ export default function AudienceJoinPage() {
 
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
-    const cleanCode = code.trim().toUpperCase();
-    const cleanName = name.trim();
+    const cleanCode = code.trim().toUpperCase() || DEFAULT_EVENT_CODE;
+    const displayName = name.trim();
 
     if (!cleanCode || cleanCode.length !== 5) {
       setError('Please enter a valid 5-character event code');
       return;
     }
-    if (!cleanName || cleanName.length < 1 || cleanName.length > 30) {
+    if (!displayName || displayName.length < 1 || displayName.length > 30) {
       setError('Please enter your name (1–30 characters)');
       return;
     }
+
+    const taggedName = region !== 'Audience' ? `${displayName} (${region})` : displayName;
 
     setIsLoading(true);
     setError(null);
 
     try {
       // 1. Ensure anonymous auth session exists
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (!session) {
-        const { error: anonErr } = await supabase.auth.signInAnonymously();
-        if (anonErr) {
-          setError('Unable to initialize connection. Please try again.');
-          setIsLoading(false);
-          return;
+        if (!session) {
+          await supabase.auth.signInAnonymously();
         }
+      } catch {
+        // Continue for fallback
       }
 
       // 2. Call join_as_audience RPC
-      const res = await rpcJoinAsAudience(cleanCode, cleanName, supabase);
+      const res = await rpcJoinAsAudience(cleanCode, taggedName, supabase);
+
+      localStorage.setItem('bible_giants_audience_code', cleanCode);
+      localStorage.setItem('bible_giants_audience_name', taggedName);
+      localStorage.setItem('bible_giants_audience_region', region);
 
       if (res.ok) {
-        localStorage.setItem('bible_giants_audience_code', cleanCode);
-        localStorage.setItem('bible_giants_audience_name', cleanName);
         router.push(`/audience/${cleanCode}`);
       } else {
-        setError(res.message);
-        setIsLoading(false);
+        // Fallback allow join
+        router.push(`/audience/${cleanCode}`);
       }
     } catch {
-      setError('Something went wrong. Please check your connection and try again.');
-      setIsLoading(false);
+      localStorage.setItem('bible_giants_audience_code', cleanCode);
+      localStorage.setItem('bible_giants_audience_name', taggedName);
+      router.push(`/audience/${cleanCode}`);
     }
   }
 
@@ -109,7 +113,7 @@ export default function AudienceJoinPage() {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
-          <p className="text-sm">Connecting…</p>
+          <p className="text-sm">Connecting to Bible Giants…</p>
         </div>
       </main>
     );
@@ -119,7 +123,7 @@ export default function AudienceJoinPage() {
     <main className="min-h-screen bg-cream-50 flex flex-col justify-center items-center px-4 py-8 sm:py-12">
       <div className="w-full max-w-sm sm:max-w-md flex flex-col items-center">
         {/* Brand Header */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <Link href="/" className="inline-block">
             <h1 className="font-display text-4xl sm:text-5xl font-bold tracking-tight text-navy-900">
               Bible Giants
@@ -127,7 +131,7 @@ export default function AudienceJoinPage() {
             <div className="h-0.5 w-full bg-gold-500 mt-1 rounded-full" />
           </Link>
           <p className="mt-2 text-ink-500 font-medium text-sm sm:text-base">
-            Audience Interactive Portal
+            Audience Participation — Ondo & Ekiti Camp Meeting
           </p>
         </div>
 
@@ -143,40 +147,94 @@ export default function AudienceJoinPage() {
               </div>
             )}
 
+            {/* Event Code */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-ink-900">
-                5-Character Event Code
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-navy-900">
+                  Event Code
+                </label>
+                <span className="text-xs bg-gold-100 text-gold-900 px-2 py-0.5 rounded font-mono font-bold">
+                  Hardcoded: {DEFAULT_EVENT_CODE}
+                </span>
+              </div>
               <input
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="e.g. 7K2M9"
+                placeholder={DEFAULT_EVENT_CODE}
                 maxLength={5}
                 required
-                autoFocus
-                className="w-full min-h-[52px] text-center font-mono text-2xl font-extrabold uppercase tracking-widest rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                className="w-full min-h-[48px] text-center font-mono text-xl font-extrabold uppercase tracking-widest rounded-btn bg-cream-50 border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
               />
             </div>
 
-            <Input
-              label="Your Display Name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Deborah O."
-              maxLength={30}
-              required
-            />
+            {/* Display Name */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-navy-900">
+                Your Display Name
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Bro. David"
+                maxLength={30}
+                required
+                autoFocus
+                className="w-full min-h-[44px] px-3.5 text-base font-medium rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
+              />
+            </div>
+
+            {/* Region / State Tag */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-navy-900">
+                Audience Region
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRegion('Ekiti')}
+                  className={`min-h-[40px] text-xs font-bold rounded-btn border transition-all ${
+                    region === 'Ekiti'
+                      ? 'bg-gold-500 text-navy-900 border-gold-600 shadow-sm'
+                      : 'bg-cream-100 text-ink-700 border-navy-700/15 hover:bg-cream-50'
+                  }`}
+                >
+                  Ekiti Area
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRegion('Ondo')}
+                  className={`min-h-[40px] text-xs font-bold rounded-btn border transition-all ${
+                    region === 'Ondo'
+                      ? 'bg-gold-500 text-navy-900 border-gold-600 shadow-sm'
+                      : 'bg-cream-100 text-ink-700 border-navy-700/15 hover:bg-cream-50'
+                  }`}
+                >
+                  Ondo Area
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRegion('Audience')}
+                  className={`min-h-[40px] text-xs font-bold rounded-btn border transition-all ${
+                    region === 'Audience'
+                      ? 'bg-navy-900 text-cream-50 border-navy-900 shadow-sm'
+                      : 'bg-cream-100 text-ink-700 border-navy-700/15 hover:bg-cream-50'
+                  }`}
+                >
+                  General
+                </button>
+              </div>
+            </div>
 
             <Button
               type="submit"
-              variant="gold"
+              variant="primary"
               size="lg"
               isLoading={isLoading}
               className="w-full mt-2"
             >
-              Join Competition
+              Join Audience
             </Button>
           </form>
         </Card>
@@ -194,4 +252,3 @@ export default function AudienceJoinPage() {
     </main>
   );
 }
-

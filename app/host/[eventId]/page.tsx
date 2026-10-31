@@ -54,7 +54,20 @@ export default function EventOverviewPage() {
         .select('*')
         .eq('id', eventId)
         .single();
-      if (evErr) throw evErr;
+
+      if (evErr || !evData) {
+        if (eventId === '11111111-1111-1111-1111-111111111111') {
+          const { DEFAULT_EVENT, DEFAULT_CONTESTANTS, DEFAULT_ROUNDS, DEFAULT_QUESTIONS } =
+            await import('@/lib/defaultEvent');
+          setEvent(DEFAULT_EVENT);
+          setContestants(DEFAULT_CONTESTANTS);
+          setRounds(DEFAULT_ROUNDS);
+          setQuestions(DEFAULT_QUESTIONS);
+          setIsLoading(false);
+          return;
+        }
+        throw evErr;
+      }
       setEvent(evData as Event);
 
       // 2. Contestants

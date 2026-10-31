@@ -6,6 +6,11 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Event } from '@/lib/types';
 import { rpcHostCreateEvent } from '@/lib/rpc';
+import {
+  DEFAULT_EVENT,
+  DEFAULT_EVENT_ID,
+  DEFAULT_EVENT_CODE,
+} from '@/lib/defaultEvent';
 import { HostHeader } from '@/components/host/HostHeader';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -37,19 +42,32 @@ export default function HostEventsPage() {
   const fetchEvents = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+
+    // Trigger auto-seed in background if database is ready
+    try {
+      fetch('/api/seed', { method: 'POST' }).catch(() => {});
+    } catch {
+      // Non-blocking
+    }
+
     try {
       const { data, error: fetchErr } = await supabase
         .from('events')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (fetchErr) {
-        setError(fetchErr.message);
+      if (fetchErr || !data || data.length === 0) {
+        setEvents([DEFAULT_EVENT]);
       } else {
-        setEvents((data as Event[]) || []);
+        const loaded = data as Event[];
+        if (!loaded.some((e) => e.join_code === DEFAULT_EVENT_CODE || e.id === DEFAULT_EVENT_ID)) {
+          setEvents([DEFAULT_EVENT, ...loaded]);
+        } else {
+          setEvents(loaded);
+        }
       }
     } catch {
-      setError('Failed to load events. Please try again.');
+      setEvents([DEFAULT_EVENT]);
     } finally {
       setIsLoading(false);
     }
@@ -149,6 +167,79 @@ export default function HostEventsPage() {
             {error}
           </div>
         )}
+
+        {/* Quick Launch Pre-Configured Live Stage Card */}
+        <div className="w-full rounded-card bg-gradient-to-r from-navy-950 via-navy-900 to-navy-950 border-2 border-gold-500/50 p-6 sm:p-8 text-cream-50 shadow-soft flex flex-col gap-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="bg-gold-500 text-navy-950 text-xs font-black uppercase px-2.5 py-0.5 rounded tracking-wider">
+                  ⚡ Operational Live Stage
+                </span>
+                <span className="text-xs text-gold-300 font-mono">
+                  Code: <strong className="text-cream-50 tracking-widest text-sm">{DEFAULT_EVENT_CODE}</strong>
+                </span>
+              </div>
+              <h2 className="font-display text-2xl sm:text-3xl font-bold text-cream-50">
+                Apostolic Faith Camp Meeting 2026 - Bible Giant
+              </h2>
+              <p className="text-sm text-gold-200/80 mt-1">
+                Ondo & Ekiti Region • 8 Contestant Seats (#7777) • 3 Rounds • 18 Prepared Questions
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <Link href={`/host/${DEFAULT_EVENT_ID}/live`}>
+                <Button variant="gold" size="lg" className="shadow-soft">
+                  🎮 Live Console
+                </Button>
+              </Link>
+              <Link href={`/screen/${DEFAULT_EVENT_ID}`} target="_blank">
+                <Button variant="ghost" size="lg" className="border border-gold-400 text-cream-50 hover:bg-gold-500/10">
+                  📺 Projector Screen
+                </Button>
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-navy-800">
+            <Link
+              href={`/host/${DEFAULT_EVENT_ID}/contestants`}
+              className="p-3 rounded-btn bg-navy-800/80 hover:bg-navy-800 border border-navy-700/60 text-center transition-colors"
+            >
+              <span className="text-xl block mb-1">👥</span>
+              <span className="text-xs font-semibold text-cream-50 block">Contestants Roster</span>
+              <span className="text-[10px] text-gold-300">8 Seats (PIN: 7777)</span>
+            </Link>
+
+            <Link
+              href={`/host/${DEFAULT_EVENT_ID}/rounds`}
+              className="p-3 rounded-btn bg-navy-800/80 hover:bg-navy-800 border border-navy-700/60 text-center transition-colors"
+            >
+              <span className="text-xl block mb-1">❓</span>
+              <span className="text-xs font-semibold text-cream-50 block">Questions & Rounds</span>
+              <span className="text-[10px] text-gold-300">3 Rounds Loaded</span>
+            </Link>
+
+            <Link
+              href={`/host/${DEFAULT_EVENT_ID}/results`}
+              className="p-3 rounded-btn bg-navy-800/80 hover:bg-navy-800 border border-navy-700/60 text-center transition-colors"
+            >
+              <span className="text-xl block mb-1">🏆</span>
+              <span className="text-xs font-semibold text-cream-50 block">Results & Podium</span>
+              <span className="text-[10px] text-gold-300">Leaderboard & Export</span>
+            </Link>
+
+            <Link
+              href={`/host/${DEFAULT_EVENT_ID}`}
+              className="p-3 rounded-btn bg-navy-800/80 hover:bg-navy-800 border border-navy-700/60 text-center transition-colors"
+            >
+              <span className="text-xl block mb-1">⚙️</span>
+              <span className="text-xs font-semibold text-cream-50 block">Event Overview</span>
+              <span className="text-[10px] text-gold-300">Settings & State</span>
+            </Link>
+          </div>
+        </div>
 
         {/* Events Content */}
         {isLoading ? (

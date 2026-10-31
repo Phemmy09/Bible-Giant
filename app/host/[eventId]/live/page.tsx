@@ -78,17 +78,54 @@ export default function HostLiveConsolePage() {
         supabase.from('audience_members').select('*', { count: 'exact', head: true }).eq('event_id', eventId),
       ]);
 
-      if (rRes.data) setRounds(rRes.data as Round[]);
-      if (qRes.data) setQuestions(qRes.data as Question[]);
-      if (kRes.data) {
+      if (rRes.data && rRes.data.length > 0) {
+        setRounds(rRes.data as Round[]);
+      } else if (eventId === '11111111-1111-1111-1111-111111111111') {
+        const { DEFAULT_ROUNDS } = await import('@/lib/defaultEvent');
+        setRounds(DEFAULT_ROUNDS);
+      }
+
+      if (qRes.data && qRes.data.length > 0) {
+        setQuestions(qRes.data as Question[]);
+      } else if (eventId === '11111111-1111-1111-1111-111111111111') {
+        const { DEFAULT_QUESTIONS } = await import('@/lib/defaultEvent');
+        setQuestions(DEFAULT_QUESTIONS);
+      }
+
+      if (kRes.data && kRes.data.length > 0) {
         const kMap = new Map<string, QuestionKey>();
         (kRes.data as QuestionKey[]).forEach((k) => kMap.set(k.question_id, k));
         setQuestionKeys(kMap);
+      } else if (eventId === '11111111-1111-1111-1111-111111111111') {
+        const { DEFAULT_QUESTION_KEYS } = await import('@/lib/defaultEvent');
+        const kMap = new Map<string, QuestionKey>();
+        DEFAULT_QUESTION_KEYS.forEach((k) => kMap.set(k.question_id, k));
+        setQuestionKeys(kMap);
       }
-      if (cRes.data) setContestants(cRes.data as Contestant[]);
+
+      if (cRes.data && cRes.data.length > 0) {
+        setContestants(cRes.data as Contestant[]);
+      } else if (eventId === '11111111-1111-1111-1111-111111111111') {
+        const { DEFAULT_CONTESTANTS } = await import('@/lib/defaultEvent');
+        setContestants(DEFAULT_CONTESTANTS);
+      }
+
       if (audCountRes.count !== null) setAudienceCount(audCountRes.count);
-    } catch (err: unknown) {
-      console.warn('Error fetching live console setup data:', err);
+    } catch {
+      if (eventId === '11111111-1111-1111-1111-111111111111') {
+        const {
+          DEFAULT_ROUNDS,
+          DEFAULT_QUESTIONS,
+          DEFAULT_QUESTION_KEYS,
+          DEFAULT_CONTESTANTS,
+        } = await import('@/lib/defaultEvent');
+        setRounds(DEFAULT_ROUNDS);
+        setQuestions(DEFAULT_QUESTIONS);
+        const kMap = new Map<string, QuestionKey>();
+        DEFAULT_QUESTION_KEYS.forEach((k) => kMap.set(k.question_id, k));
+        setQuestionKeys(kMap);
+        setContestants(DEFAULT_CONTESTANTS);
+      }
     }
   }, [eventId, supabase]);
 

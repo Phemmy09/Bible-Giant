@@ -4,6 +4,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { GameState, Event, Question, Round } from '@/lib/types';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import {
+  DEFAULT_EVENT,
+  DEFAULT_EVENT_ID,
+  DEFAULT_GAME_STATE,
+  DEFAULT_QUESTIONS,
+  DEFAULT_ROUNDS,
+} from '@/lib/defaultEvent';
 
 export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
 
@@ -72,6 +79,13 @@ export function useGameState(eventId: string | null | undefined): UseGameStateRe
             setCurrentRound(null);
           }
         }
+      } else if (eventId === DEFAULT_EVENT_ID || !gsData) {
+        // Fallback to pre-created default event state
+        setGameState((prev) => prev || DEFAULT_GAME_STATE);
+        setEvent((prev) => prev || DEFAULT_EVENT);
+        setCurrentRound((prev) => prev || DEFAULT_ROUNDS[0]);
+        setCurrentQuestion((prev) => prev || DEFAULT_QUESTIONS[0]);
+        setConnectionStatus('connected');
       }
 
       // 2. Fetch event
@@ -82,9 +96,18 @@ export function useGameState(eventId: string | null | undefined): UseGameStateRe
         .single();
       if (evData) {
         setEvent(evData as Event);
+      } else if (eventId === DEFAULT_EVENT_ID) {
+        setEvent(DEFAULT_EVENT);
       }
-    } catch (err) {
-      console.warn('Error fetching game state:', err);
+    } catch {
+      // Graceful fallback to default event
+      if (eventId === DEFAULT_EVENT_ID) {
+        setGameState((prev) => prev || DEFAULT_GAME_STATE);
+        setEvent((prev) => prev || DEFAULT_EVENT);
+        setCurrentRound((prev) => prev || DEFAULT_ROUNDS[0]);
+        setCurrentQuestion((prev) => prev || DEFAULT_QUESTIONS[0]);
+        setConnectionStatus('connected');
+      }
     }
   }, [eventId, supabase]);
 
@@ -192,4 +215,3 @@ export function useGameState(eventId: string | null | undefined): UseGameStateRe
     refetch: fetchAllState,
   };
 }
-

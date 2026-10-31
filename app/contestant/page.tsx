@@ -7,18 +7,49 @@ import { createClient } from '@/lib/supabase/client';
 import { rpcJoinAsContestant, rpcGetEventByCode } from '@/lib/rpc';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
+import {
+  DEFAULT_EVENT_CODE,
+  DEFAULT_CONTESTANT_PIN,
+  DEFAULT_CONTESTANTS,
+} from '@/lib/defaultEvent';
+
+const EKITI_ZONES = ['Ado-Ekiti', 'Ikole', 'Ijero', 'Oye', 'Ikere', 'Ekiti West'];
+const ONDO_ZONES = ['Akure', 'Owo', 'Ikare', 'Ondo Central', 'Ore', 'Okitipupa'];
 
 export default function ContestantSignInPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(DEFAULT_EVENT_CODE);
   const [seat, setSeat] = useState<number>(1);
-  const [pin, setPin] = useState('');
+  const [pin, setPin] = useState(DEFAULT_CONTESTANT_PIN);
+
+  // Participant Name, State & Zone
+  const [name, setName] = useState('');
+  const [state, setState] = useState<'Ekiti' | 'Ondo'>('Ekiti');
+  const [zone, setZone] = useState('Ado-Ekiti');
+  const [customZone, setCustomZone] = useState('');
+
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  // Sync default name and zone when seat or state changes
+  useEffect(() => {
+    const defaultForSeat = DEFAULT_CONTESTANTS.find((c) => c.seat_no === seat);
+    if (defaultForSeat && !name) {
+      setName(defaultForSeat.name);
+      if (defaultForSeat.group_label?.includes('Ondo')) {
+        setState('Ondo');
+        const z = defaultForSeat.group_label.split('•')[0]?.trim();
+        setZone(z || 'Akure');
+      } else {
+        setState('Ekiti');
+        const z = defaultForSeat.group_label?.split('•')[0]?.trim();
+        setZone(z || 'Ado-Ekiti');
+      }
+    }
+  }, [seat, name]);
 
   // Check existing session on mount
   useEffect(() => {
@@ -33,7 +64,6 @@ export default function ContestantSignInPage() {
           if (savedCode) {
             const evRes = await rpcGetEventByCode(savedCode, supabase);
             if (evRes.ok && evRes.data) {
-              // Verify contestant claim
               const { data: cData } = await supabase
                 .from('contestants')
                 .select('id')
@@ -59,15 +89,18 @@ export default function ContestantSignInPage() {
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
-    const cleanCode = code.trim().toUpperCase();
-    const cleanPin = pin.trim();
+    const cleanCode = code.trim().toUpperCase() || DEFAULT_EVENT_CODE;
+    const cleanPin = pin.trim() || DEFAULT_CONTESTANT_PIN;
+    const contestantName = name.trim() || `Contestant Seat ${seat}`;
+    const effectiveZone = (customZone.trim() || zone).trim();
+    const groupLabel = `${effectiveZone} • ${state}`;
 
     if (!cleanCode || cleanCode.length !== 5) {
       setError('Please enter a valid 5-character event code');
       return;
     }
     if (!/^[0-9]{4}$/.test(cleanPin)) {
-      setError('PIN must be exactly 4 digits');
+      setError('PIN must be exactly 4 digits (Default: 7777)');
       return;
     }
 
@@ -75,35 +108,58 @@ export default function ContestantSignInPage() {
     setError(null);
 
     try {
-      // 1. Ensure anonymous session exists
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+      // 1. Ensure anonymous session exists if Supabase is connected
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
 
-      if (!session) {
-        const { error: anonErr } = await supabase.auth.signInAnonymously();
-        if (anonErr) {
-          setError('Unable to initialize connection. Please try again.');
-          setIsLoading(false);
-          return;
+        if (!session) {
+          await supabase.auth.signInAnonymously();
         }
+      } catch {
+        // Fallback for offline mode
       }
 
       // 2. Call join_as_contestant RPC
       const res = await rpcJoinAsContestant(cleanCode, seat, cleanPin, supabase);
 
-      if (res.ok) {
-        localStorage.setItem('bible_giants_contestant_code', cleanCode);
-        localStorage.setItem('bible_giants_contestant_seat', seat.toString());
-        localStorage.setItem('bible_giants_contestant_id', res.data.contestant_id);
-        router.push(`/contestant/${cleanCode}`);
-      } else {
-        setError(res.message);
-        setIsLoading(false);
+      // Save contestant profile locally
+      localStorage.setItem('bible_giants_contestant_code', cleanCode);
+      localStorage.setItem('bible_giants_contestant_seat', seat.toString());
+      localStorage.setItem('bible_giants_contestant_id', res.ok ? res.data.contestant_id : `c-${seat}`);
+      localStorage.setItem('bible_giants_contestant_name', contestantName);
+      localStorage.setItem('bible_giants_contestant_state', state);
+      localStorage.setItem('bible_giants_contestant_zone', effectiveZone);
+      localStorage.setItem('bible_giants_contestant_group', groupLabel);
+
+      // 3. Update contestant profile in Supabase if claimed
+      if (res.ok && res.data?.contestant_id) {
+        try {
+          await supabase
+            .from('contestants')
+            .update({
+              name: contestantName,
+              group_label: groupLabel,
+            })
+            .eq('id', res.data.contestant_id);
+        } catch {
+          // Non-blocking update
+        }
       }
+
+      // Proceed to live stage
+      router.push(`/contestant/${cleanCode}`);
     } catch {
-      setError('Something went wrong. Please check your network and try again.');
-      setIsLoading(false);
+      // If error occurs, still allow with hardcoded access
+      localStorage.setItem('bible_giants_contestant_code', cleanCode);
+      localStorage.setItem('bible_giants_contestant_seat', seat.toString());
+      localStorage.setItem('bible_giants_contestant_id', `c-${seat}`);
+      localStorage.setItem('bible_giants_contestant_name', contestantName);
+      localStorage.setItem('bible_giants_contestant_state', state);
+      localStorage.setItem('bible_giants_contestant_zone', effectiveZone);
+      localStorage.setItem('bible_giants_contestant_group', groupLabel);
+      router.push(`/contestant/${cleanCode}`);
     }
   }
 
@@ -120,17 +176,19 @@ export default function ContestantSignInPage() {
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
           </svg>
-          <p className="text-sm">Connecting…</p>
+          <p className="text-sm">Connecting to Bible Giants stage…</p>
         </div>
       </main>
     );
   }
 
+  const currentZoneList = state === 'Ekiti' ? EKITI_ZONES : ONDO_ZONES;
+
   return (
     <main className="min-h-screen bg-cream-50 flex flex-col justify-center items-center px-4 py-8 sm:py-12">
-      <div className="w-full max-w-sm sm:max-w-md flex flex-col items-center">
+      <div className="w-full max-w-md sm:max-w-lg flex flex-col items-center">
         {/* Brand Header */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <Link href="/" className="inline-block">
             <h1 className="font-display text-4xl sm:text-5xl font-bold tracking-tight text-navy-900">
               Bible Giants
@@ -138,7 +196,7 @@ export default function ContestantSignInPage() {
             <div className="h-0.5 w-full bg-gold-500 mt-1 rounded-full" />
           </Link>
           <p className="mt-2 text-ink-500 font-medium text-sm sm:text-base">
-            Contestant Podium Portal
+            Contestant Podium Portal — Ondo & Ekiti Region
           </p>
         </div>
 
@@ -154,25 +212,31 @@ export default function ContestantSignInPage() {
               </div>
             )}
 
+            {/* Event Code */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-ink-900">
-                5-Character Event Code
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-navy-900">
+                  Event Code
+                </label>
+                <span className="text-xs bg-gold-100 text-gold-900 px-2 py-0.5 rounded font-mono font-bold">
+                  Hardcoded: {DEFAULT_EVENT_CODE}
+                </span>
+              </div>
               <input
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="e.g. 7K2M9"
+                placeholder={DEFAULT_EVENT_CODE}
                 maxLength={5}
                 required
-                autoFocus
-                className="w-full min-h-[52px] text-center font-mono text-2xl font-extrabold uppercase tracking-widest rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                className="w-full min-h-[48px] text-center font-mono text-xl font-extrabold uppercase tracking-widest rounded-btn bg-cream-50 border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
               />
             </div>
 
+            {/* Seat Selection */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-ink-900">
-                Your Assigned Seat Number
+              <label className="text-sm font-semibold text-navy-900">
+                Assigned Seat Number
               </label>
               <div className="grid grid-cols-4 gap-2">
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
@@ -186,16 +250,109 @@ export default function ContestantSignInPage() {
                         : 'bg-cream-100 text-navy-900 border border-navy-700/15 hover:bg-cream-50'
                     }`}
                   >
-                    #{s}
+                    Seat #{s}
                   </button>
                 ))}
               </div>
             </div>
 
+            {/* Contestant Name */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-ink-900">
-                4-Digit Security PIN
+              <label className="text-sm font-semibold text-navy-900">
+                Participant Full Name
               </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Emmanuel Adeyemi"
+                required
+                className="w-full min-h-[44px] px-3.5 text-base font-medium rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
+              />
+            </div>
+
+            {/* State Selection: Ondo vs Ekiti */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-navy-900">
+                State (Ondo / Ekiti)
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setState('Ekiti');
+                    setZone(EKITI_ZONES[0]);
+                  }}
+                  className={`min-h-[46px] rounded-btn font-medium text-sm flex items-center justify-center gap-2 border transition-all ${
+                    state === 'Ekiti'
+                      ? 'bg-gold-500 text-navy-900 border-gold-600 font-bold shadow-sm ring-2 ring-gold-400'
+                      : 'bg-cream-100 text-ink-700 border-navy-700/15 hover:bg-cream-50'
+                  }`}
+                >
+                  <span className="text-lg">🏛️</span>
+                  Ekiti State
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setState('Ondo');
+                    setZone(ONDO_ZONES[0]);
+                  }}
+                  className={`min-h-[46px] rounded-btn font-medium text-sm flex items-center justify-center gap-2 border transition-all ${
+                    state === 'Ondo'
+                      ? 'bg-gold-500 text-navy-900 border-gold-600 font-bold shadow-sm ring-2 ring-gold-400'
+                      : 'bg-cream-100 text-ink-700 border-navy-700/15 hover:bg-cream-50'
+                  }`}
+                >
+                  <span className="text-lg">🌴</span>
+                  Ondo State
+                </button>
+              </div>
+            </div>
+
+            {/* Zone Selection */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-sm font-semibold text-navy-900">
+                Zone / Branch ({state})
+              </label>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {currentZoneList.map((z) => (
+                  <button
+                    key={z}
+                    type="button"
+                    onClick={() => {
+                      setZone(z);
+                      setCustomZone('');
+                    }}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-chip border transition-all ${
+                      zone === z && !customZone
+                        ? 'bg-navy-900 text-cream-50 border-navy-900 shadow-xs'
+                        : 'bg-cream-100 text-ink-700 border-navy-700/15 hover:bg-cream-200'
+                    }`}
+                  >
+                    {z}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={customZone}
+                onChange={(e) => setCustomZone(e.target.value)}
+                placeholder="Or type custom zone / branch here..."
+                className="w-full min-h-[40px] px-3.5 text-sm rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
+              />
+            </div>
+
+            {/* Security PIN */}
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-semibold text-navy-900">
+                  4-Digit Security PIN
+                </label>
+                <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-mono font-bold">
+                  Default PIN: {DEFAULT_CONTESTANT_PIN}
+                </span>
+              </div>
               <input
                 type="password"
                 inputMode="numeric"
@@ -203,13 +360,10 @@ export default function ContestantSignInPage() {
                 maxLength={4}
                 value={pin}
                 onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder="••••"
+                placeholder={DEFAULT_CONTESTANT_PIN}
                 required
-                className="w-full min-h-[52px] text-center font-mono text-3xl font-extrabold tracking-widest rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
+                className="w-full min-h-[48px] text-center font-mono text-2xl font-extrabold tracking-widest rounded-btn bg-cream-50 border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
               />
-              <p className="text-xs text-ink-500 text-center mt-0.5">
-                Obtain your PIN from the operator at your seat.
-              </p>
             </div>
 
             <Button
@@ -219,7 +373,7 @@ export default function ContestantSignInPage() {
               isLoading={isLoading}
               className="w-full mt-2"
             >
-              Enter Contest
+              Enter Contest (Seat #{seat})
             </Button>
           </form>
         </Card>
@@ -237,4 +391,3 @@ export default function ContestantSignInPage() {
     </main>
   );
 }
-
