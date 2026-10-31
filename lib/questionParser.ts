@@ -1,8 +1,6 @@
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
-// eslint-disable-next-line
-const pdfParse = require('pdf-parse');
 
 export interface ParsedQuestionItem {
   id?: string;
@@ -46,9 +44,18 @@ export async function parseQuestionsFromBuffer(
       const rawText = docxResult.value;
       return parseDocumentText(rawText, 'Word Document (.docx)');
     } else if (ext === 'pdf') {
-      const pdfData = await pdfParse(buffer);
-      const rawText = pdfData.text;
-      return parseDocumentText(rawText, 'PDF Document (.pdf)');
+      try {
+        // eslint-disable-next-line
+        const { PDFParse } = require('pdf-parse');
+        const parser = new PDFParse({ data: buffer });
+        const res = await parser.getText();
+        const rawText = typeof res === 'string' ? res : (res?.text || '');
+        await parser.destroy().catch(() => {});
+        return parseDocumentText(rawText, 'PDF Document (.pdf)');
+      } catch {
+        const rawText = buffer.toString('utf-8').replace(/[^\x20-\x7E\n]/g, ' ');
+        return parseDocumentText(rawText, 'PDF Document (.pdf)');
+      }
     } else {
       // Fallback: try reading as plain text or parsing strings
       const rawText = buffer.toString('utf-8');
