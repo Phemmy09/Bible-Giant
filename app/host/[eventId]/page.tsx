@@ -14,22 +14,34 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EventStatusBadge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import {
+  DEFAULT_EVENT_ID,
+  DEFAULT_EVENT,
+  DEFAULT_CONTESTANTS,
+  DEFAULT_ROUNDS,
+  DEFAULT_QUESTIONS,
+} from '@/lib/defaultEvent';
 
 export default function EventOverviewPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  const isDefaultEvent = eventId === DEFAULT_EVENT_ID;
   const supabase = useMemo(() => createClient(), []);
 
-  const [event, setEvent] = useState<Event | null>(null);
-  const [contestants, setContestants] = useState<Contestant[]>([]);
-  const [rounds, setRounds] = useState<Round[]>([]);
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [event, setEvent] = useState<Event | null>(() => (isDefaultEvent ? DEFAULT_EVENT : null));
+  const [contestants, setContestants] = useState<Contestant[]>(() =>
+    isDefaultEvent ? DEFAULT_CONTESTANTS : []
+  );
+  const [rounds, setRounds] = useState<Round[]>(() => (isDefaultEvent ? DEFAULT_ROUNDS : []));
+  const [questions, setQuestions] = useState<Question[]>(() =>
+    isDefaultEvent ? DEFAULT_QUESTIONS : []
+  );
   const [audience, setAudience] = useState<AudienceMember[]>([]);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [hasQuestionKeysError, setHasQuestionKeysError] = useState(false);
   const [gameState, setGameState] = useState<{ version: number; screen: string } | null>(null);
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!isDefaultEvent);
   const [error, setError] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 

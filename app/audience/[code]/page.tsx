@@ -12,11 +12,15 @@ import {
   Answer,
   OptionKey,
   RaffleDraw,
+  RoundSummaryResult,
+  AudienceBoardResult,
 } from '@/lib/types';
 import {
   rpcGetEventByCode,
   rpcSubmitPrediction,
   rpcSubmitAnswer,
+  rpcGetRoundSummary,
+  rpcGetAudienceBoard,
 } from '@/lib/rpc';
 import { useGameState } from '@/lib/realtime/useGameState';
 import { useServerClock } from '@/lib/realtime/useServerClock';
@@ -57,6 +61,8 @@ export default function AudienceViewPage() {
   const [allAudienceScores, setAllAudienceScores] = useState<AudienceScore[]>([]);
   const [contestantScores, setContestantScores] = useState<ContestantScore[]>([]);
   const [latestRaffle, setLatestRaffle] = useState<RaffleDraw | null>(null);
+  const [roundSummaryData, setRoundSummaryData] = useState<RoundSummaryResult | null>(null);
+  const [audienceBoardData, setAudienceBoardData] = useState<AudienceBoardResult | null>(null);
 
   // Hook into realtime game state and clock
   const { gameState, event, currentQuestion, currentRound, connectionStatus } = useGameState(eventId);
@@ -295,8 +301,24 @@ export default function AudienceViewPage() {
       refreshLatestRaffle();
     } else if (gameState?.screen === 'winner') {
       refreshContestantScores();
+    } else if (gameState?.screen === 'round_summary') {
+      refreshContestantScores();
+      refreshAudienceScores();
+      const summaryRoundId = gameState.summary_round_id || currentRound?.id;
+      if (summaryRoundId && eventId) {
+        rpcGetRoundSummary(eventId, summaryRoundId, supabase).then((res) => {
+          if (res.ok) setRoundSummaryData(res.data);
+        });
+      }
+    } else if (gameState?.screen === 'audience_board') {
+      refreshAudienceScores();
+      if (eventId) {
+        rpcGetAudienceBoard(eventId, supabase).then((res) => {
+          if (res.ok) setAudienceBoardData(res.data);
+        });
+      }
     }
-  }, [gameState?.screen, refreshContestantScores, refreshAudienceScores, refreshLatestRaffle]);
+  }, [gameState?.screen, gameState?.summary_round_id, currentRound?.id, eventId, refreshContestantScores, refreshAudienceScores, refreshLatestRaffle, supabase]);
 
   // Prediction saving
   const handleSavePrediction = useCallback(
@@ -669,6 +691,164 @@ export default function AudienceViewPage() {
                     </div>
                   );
                 })}
+              </div>
+            </Card>
+          </div>
+        ) : screen === 'round_summary' ? (
+          /* ROUND SUMMARY VIEW (§8.3) */
+          <div className="flex flex-col gap-6 animate-fade-in py-4">
+            <div className="text-center">
+              <span className="text-xs uppercase tracking-widest font-bold text-gold-500">
+                Round Results
+              </span>
+              <h2 className="font-display text-2xl sm:text-3xl font-bold text-navy-900 mt-1">
+                {roundSummaryData?.round_title || currentRound?.title || 'Round'} — Standings
+              </h2>
+              {/* Audience personal rank line (§8.3): "You are #R of N audience members — NN points" */}
+              <div className="mt-3 p-3 rounded-card bg-gold-500/15 border border-gold-500/40 text-center">
+                <p className="font-bold text-navy-900 text-sm">
+                  {roundSummaryData?.my_audience?.rank
+                    ? `You are #${roundSummaryData.my_audience.rank} of ${allAudienceScores.length || audienceCount} audience members — ${roundSummaryData.my_audience.total_points} points`
+                    : audienceRank
+                    ? `You are ${audienceRank} of ${allAudienceScores.length || audienceCount} audience members — ${audienceScore} points`
+                    : `You have ${audienceScore} points`}
+                </p>
+              </div>
+            </div>
+
+            {/* Contestant Standings for the round */}
+            <Card className="p-4 bg-white border-navy-700/10">
+              <h3 className="font-bold text-navy-900 text-sm mb-3 uppercase tracking-wider">
+                Contestant Standings
+              </h3>
+              <div className="flex flex-col gap-2">
+                {(roundSummaryData?.contestants && roundSummaryData.contestants.length > 0
+                  ? roundSummaryData.contestants
+                  : rankedContestants.map((entry, idx) => ({
+                      contestant_id: entry.id,
+                      name: entry.name,
+                      group_label: entry.group_label,
+                      round_points: 0,
+                      total_points: entry.total_points,
+                      correct_in_round: 0,
+                      rank: idx + 1,
+                    }))
+                ).map((entry) => (
+                  <div
+                    key={entry.contestant_id}
+                    className="flex items-center justify-between p-2.5 rounded-card bg-cream-50 border border-navy-700/5 text-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 font-mono font-bold text-xs text-ink-500">
+                        #{entry.rank}
+                      </span>
+                      <div>
+                        <p className="font-bold text-navy-900">{entry.name}</p>
+                        {entry.group_label && (
+                          <p className="text-xs text-ink-500">{entry.group_label}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-mono text-xs text-gold-600 font-bold block">
+                        +{entry.round_points}
+                      </span>
+                      <span className="font-display font-extrabold text-navy-900 tabular-nums">
+                        {entry.total_points} pts
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* Audience Top 5 */}
+            <Card className="p-4 bg-white border-gold-500/30">
+              <h3 className="font-bold text-navy-900 text-sm mb-3 uppercase tracking-wider flex items-center gap-1.5">
+                <span>🏆 Audience Top 5</span>
+              </h3>
+              {currentRound?.audience_can_answer === false || (roundSummaryData && roundSummaryData.audience_top5.length === 0) ? (
+                <p className="text-xs text-ink-500 italic text-center py-3">
+                  This round was for contestants only
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {(roundSummaryData?.audience_top5 || []).map((aud, idx) => {
+                    const isMe = aud.name === displayName;
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex items-center justify-between p-2.5 rounded-card text-sm border ${
+                          isMe ? 'bg-gold-500/15 border-gold-500 font-bold' : 'bg-cream-50 border-navy-700/5'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 font-mono font-bold text-xs text-ink-500">
+                            #{aud.rank}
+                          </span>
+                          <div>
+                            <span className="text-navy-900 font-semibold">{aud.name}</span>
+                            <span className="block text-[10px] text-ink-500">{aud.assembly}</span>
+                          </div>
+                        </div>
+                        <span className="font-display font-extrabold text-navy-900">
+                          {aud.total_points} pts
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Card>
+          </div>
+        ) : screen === 'audience_board' ? (
+          /* AUDIENCE BOARD VIEW (§8.4) */
+          <div className="flex flex-col gap-6 animate-fade-in py-4">
+            <div className="text-center">
+              <span className="text-xs uppercase tracking-widest font-bold text-gold-500">
+                Audience Awards
+              </span>
+              <h2 className="font-display text-2xl sm:text-3xl font-bold text-navy-900 mt-1">
+                Top 5 Audience Champions
+              </h2>
+              {audienceRank && (
+                <div className="mt-3 p-3 rounded-card bg-gold-500/15 border border-gold-500/40 text-center">
+                  <p className="font-bold text-navy-900 text-sm">
+                    Your Overall Rank: {audienceRank} • {audienceScore} points
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <Card className="p-4 bg-white border-gold-500/30">
+              <div className="flex flex-col gap-2">
+                {((audienceBoardData?.audience_top5 && audienceBoardData.audience_top5.length > 0)
+                  ? audienceBoardData.audience_top5
+                  : topAudienceScores.slice(0, 5).map((as, i) => ({
+                      rank: i + 1,
+                      name: as.display_name,
+                      assembly: 'Camp Meeting',
+                      total_points: as.total_points,
+                    }))
+                ).map((aud) => (
+                  <div
+                    key={aud.rank}
+                    className="flex items-center justify-between p-3 rounded-card bg-cream-50 border border-navy-700/5"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 h-8 rounded-full bg-gold-500 text-navy-950 font-bold font-mono text-sm flex items-center justify-center">
+                        #{aud.rank}
+                      </span>
+                      <div>
+                        <p className="font-bold text-navy-900 text-sm">{aud.name}</p>
+                        <p className="text-xs text-ink-500">{aud.assembly}</p>
+                      </div>
+                    </div>
+                    <span className="font-display font-extrabold text-navy-900 text-base">
+                      {aud.total_points} pts
+                    </span>
+                  </div>
+                ))}
               </div>
             </Card>
           </div>

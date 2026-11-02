@@ -289,7 +289,8 @@ export async function rpcHostSetScreen(
     p_screen: screen,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 12. Host: Show question
@@ -303,7 +304,8 @@ export async function rpcHostShowQuestion(
     p_question: questionId,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 13. Host: Open question
@@ -315,7 +317,8 @@ export async function rpcHostOpenQuestion(
     p_event: eventId,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 14. Host: Lock question
@@ -327,7 +330,8 @@ export async function rpcHostLockQuestion(
     p_event: eventId,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 15. Host: Reveal question
@@ -339,7 +343,8 @@ export async function rpcHostRevealQuestion(
     p_event: eventId,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 16. Host: Reset question
@@ -351,7 +356,8 @@ export async function rpcHostResetQuestion(
     p_event: eventId,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 17. Host: Mark spoken
@@ -367,7 +373,8 @@ export async function rpcHostMarkSpoken(
     p_correct: isCorrect,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 18. Host: Adjust score
@@ -385,7 +392,8 @@ export async function rpcHostAdjustScore(
     p_reason: reason,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 19. Host: Draw raffle
@@ -423,7 +431,8 @@ export async function rpcHostShowRoundSummary(
     p_round: roundId,
   });
   if (res.ok) return res;
-  return { ok: true, data: undefined };
+  if (eventId === DEFAULT_EVENT_ID) return { ok: true, data: undefined };
+  return res;
 }
 
 // 21. Get round summary

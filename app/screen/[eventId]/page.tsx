@@ -14,7 +14,10 @@ import {
   Prediction,
   ScreenMode,
   RaffleDraw,
+  RoundSummaryResult,
+  AudienceBoardResult,
 } from '@/lib/types';
+import { rpcGetRoundSummary, rpcGetAudienceBoard } from '@/lib/rpc';
 import { useGameState } from '@/lib/realtime/useGameState';
 import { useServerClock } from '@/lib/realtime/useServerClock';
 import { Countdown } from '@/components/ui/Countdown';
@@ -45,6 +48,8 @@ export default function ProjectorDisplayPage() {
   const [audienceScores, setAudienceScores] = useState<AudienceScore[]>([]);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [latestRaffle, setLatestRaffle] = useState<RaffleDraw | null>(null);
+  const [roundSummaryData, setRoundSummaryData] = useState<RoundSummaryResult | null>(null);
+  const [audienceBoardData, setAudienceBoardData] = useState<AudienceBoardResult | null>(null);
   const [audienceCount, setAudienceCount] = useState<number>(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -109,7 +114,7 @@ export default function ProjectorDisplayPage() {
       });
   }, [currentQuestion?.id, gameState?.question_status, eventId, supabase]);
 
-  // Screen specific data fetching
+  // Screen specific data fetching (§8.2, §8.4)
   useEffect(() => {
     if (gameState?.screen === 'leaderboard') {
       supabase
@@ -134,8 +139,23 @@ export default function ProjectorDisplayPage() {
         .then(({ data }) => {
           if (data) setLatestRaffle(data as RaffleDraw);
         });
+    } else if (gameState?.screen === 'round_summary') {
+      const summaryRoundId = gameState.summary_round_id || currentRound?.id;
+      if (summaryRoundId) {
+        rpcGetRoundSummary(eventId, summaryRoundId, supabase).then((res) => {
+          if (res.ok) {
+            setRoundSummaryData(res.data);
+          }
+        });
+      }
+    } else if (gameState?.screen === 'audience_board') {
+      rpcGetAudienceBoard(eventId, supabase).then((res) => {
+        if (res.ok) {
+          setAudienceBoardData(res.data);
+        }
+      });
     }
-  }, [gameState?.screen, eventId, supabase]);
+  }, [gameState?.screen, gameState?.summary_round_id, currentRound?.id, eventId, supabase]);
 
   function toggleFullscreen() {
     if (!document.fullscreenElement) {
@@ -303,6 +323,13 @@ export default function ProjectorDisplayPage() {
               <p className="text-xl sm:text-2xl font-semibold text-gold-300">
                 📖 {currentQuestion.scripture_ref}
               </p>
+            )}
+
+            {/* Get Ready Indicator when Question is Shown (§5.2) */}
+            {qStatus === 'shown' && (
+              <div className="my-2 px-6 py-2 rounded-chip bg-gold-500/20 border border-gold-500 text-gold-300 font-display font-bold text-2xl animate-pulse">
+                Get ready…
+              </div>
             )}
 
             {/* Countdown Ring when Question is Open */}
@@ -531,7 +558,177 @@ export default function ProjectorDisplayPage() {
           </div>
         )}
 
-        {/* 6. WINNER MODE */}
+        {/* 6. ROUND SUMMARY MODE (§8.2) */}
+        {screen === 'round_summary' && (
+          <div className="flex flex-col items-center gap-6 w-full animate-fade-in max-w-5xl">
+            <div>
+              <span className="text-sm uppercase tracking-widest text-gold-300 font-bold">
+                Round Results
+              </span>
+              <h2 className="font-display text-4xl sm:text-5xl font-bold text-cream-50 mt-1">
+                {roundSummaryData?.round_title || currentRound?.title || 'Round'} — Results
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full mt-2">
+              {/* Left 2 cols: All Contestants Ranked with Round Points & Total Points */}
+              <div className="lg:col-span-2 space-y-2.5">
+                {(roundSummaryData?.contestants && roundSummaryData.contestants.length > 0
+                  ? roundSummaryData.contestants
+                  : rankedContestants.map((c, i) => ({
+                      contestant_id: c.id,
+                      name: c.name,
+                      group_label: c.group_label,
+                      round_points: 0,
+                      total_points: c.total_points,
+                      correct_in_round: 0,
+                      rank: i + 1,
+                    }))
+                ).map((entry) => (
+                  <div
+                    key={entry.contestant_id}
+                    className={`p-4 rounded-card border flex items-center justify-between text-left transition-all ${
+                      entry.rank === 1
+                        ? 'bg-gold-500/20 border-gold-500 shadow-2xl'
+                        : 'bg-navy-900/80 border-navy-700/60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <span
+                        className={`w-10 h-10 rounded-full flex items-center justify-center font-mono font-black text-lg shrink-0 ${
+                          entry.rank === 1 ? 'bg-gold-500 text-navy-950' : 'bg-navy-800 text-cream-50 border border-navy-700'
+                        }`}
+                      >
+                        {entry.rank}
+                      </span>
+                      <div>
+                        <p className="font-display text-2xl font-bold text-cream-50 leading-tight">
+                          {entry.name}
+                        </p>
+                        {entry.group_label && (
+                          <p className="text-xs text-gold-300/90">{entry.group_label}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-6">
+                      <div className="text-right">
+                        <span className="text-xs text-cream-50/70 block uppercase font-mono font-semibold">Round</span>
+                        <span className="font-display font-bold text-2xl text-gold-400">
+                          +{entry.round_points}
+                        </span>
+                      </div>
+                      <div className="text-right border-l border-navy-700/80 pl-4">
+                        <span className="text-xs text-cream-50/70 block uppercase font-mono font-semibold">Total</span>
+                        <span className="font-display font-extrabold text-3xl text-gold-500 tabular-nums">
+                          {entry.total_points}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Right 1 col: Audience Top 5 or Contestants-Only notice (§8.2) */}
+              <div className="bg-navy-900 border border-navy-700/70 rounded-card p-5 text-left flex flex-col justify-between">
+                <div>
+                  <h3 className="font-bold text-gold-300 text-sm uppercase tracking-wider mb-3">
+                    🏆 Audience Top 5
+                  </h3>
+                  {currentRound?.audience_can_answer === false || (roundSummaryData && roundSummaryData.audience_top5.length === 0) ? (
+                    <div className="p-6 text-center text-cream-50/70 italic text-sm bg-navy-950/40 rounded-card border border-navy-700/30">
+                      This round was for contestants only
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {(roundSummaryData?.audience_top5 || []).map((aud, idx) => (
+                        <div
+                          key={idx}
+                          className="p-2.5 rounded bg-navy-950/60 border border-navy-700/30 flex items-center justify-between text-xs"
+                        >
+                          <div className="truncate max-w-[150px]">
+                            <span className="font-mono font-bold text-gold-400 mr-2">#{aud.rank}</span>
+                            <span className="font-semibold text-cream-50">{aud.name}</span>
+                            <span className="block text-[10px] text-cream-50/60 truncate">{aud.assembly}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-mono font-bold text-gold-500 text-sm">{aud.total_points}</span>
+                            <span className="text-[10px] text-cream-50/60 block">pts</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <p className="text-[11px] text-cream-50/50 mt-4 text-center">
+                  Top scores across all regional assemblies
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 7. AUDIENCE BOARD MODE (§8.4) */}
+        {screen === 'audience_board' && (
+          <div className="flex flex-col items-center gap-6 w-full animate-fade-in max-w-4xl">
+            <div>
+              <span className="text-sm uppercase tracking-widest text-gold-300 font-bold">
+                Audience Awards
+              </span>
+              <h2 className="font-display text-5xl font-bold text-cream-50 mt-1">
+                Top 5 Audience Champions
+              </h2>
+            </div>
+
+            <div className="w-full space-y-3 mt-4">
+              {((audienceBoardData?.audience_top5 && audienceBoardData.audience_top5.length > 0)
+                ? audienceBoardData.audience_top5
+                : audienceScores.slice(0, 5).map((as, i) => ({
+                    rank: i + 1,
+                    name: as.display_name,
+                    assembly: 'Camp Meeting',
+                    total_points: as.total_points,
+                  }))
+              ).map((aud) => (
+                <div
+                  key={aud.rank}
+                  className={`p-4 rounded-card border flex items-center justify-between text-left ${
+                    aud.rank === 1
+                      ? 'bg-gold-500/20 border-gold-500 shadow-2xl'
+                      : 'bg-navy-900 border-navy-700/70 shadow-soft'
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <span
+                      className={`w-11 h-11 rounded-full flex items-center justify-center font-mono font-bold text-xl ${
+                        aud.rank === 1 ? 'bg-gold-500 text-navy-950 font-black' : 'bg-navy-800 text-gold-300 border border-gold-500/30'
+                      }`}
+                    >
+                      #{aud.rank}
+                    </span>
+                    <div>
+                      <p className="font-display text-2xl font-bold text-cream-50">
+                        {aud.name}
+                      </p>
+                      <p className="text-xs text-gold-300 font-medium">
+                        {aud.assembly}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="font-display font-extrabold text-3xl sm:text-4xl text-gold-500 tabular-nums">
+                      {aud.total_points}
+                    </span>
+                    <span className="text-xs text-cream-50/70 block">pts</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 8. WINNER MODE */}
         {screen === 'winner' && (
           <div className="flex flex-col items-center gap-6 animate-fade-in">
             <span className="text-7xl animate-bounce">🏆</span>

@@ -21,6 +21,7 @@ import {
   rpcHostDrawRaffle,
   rpcHostSetScreen,
   rpcHostSetEventStatus,
+  rpcHostShowRoundSummary,
 } from '@/lib/rpc';
 import { computeLeaderboard } from '@/lib/scoring';
 import { HostHeader } from '@/components/host/HostHeader';
@@ -211,11 +212,28 @@ export default function HostEventResultsPage() {
   }
 
   // Switch Projector Screen
-  async function handleSetProjectorScreen(mode: ScreenMode) {
+  async function handleSetProjectorScreen(mode: ScreenMode, roundId?: string) {
+    if (mode === 'round_summary') {
+      const targetRoundId = roundId || rounds[0]?.id;
+      if (!targetRoundId) {
+        setActionNotice({ type: 'error', message: 'No round available to display summary.' });
+        return;
+      }
+      const res = await rpcHostShowRoundSummary(eventId, targetRoundId, supabase);
+      if (res.ok) {
+        setScreenMode('round_summary');
+        setActionNotice({ type: 'success', message: 'Projector screen switched to Round Summary.' });
+        setTimeout(() => setActionNotice(null), 3000);
+      } else {
+        setActionNotice({ type: 'error', message: res.message });
+      }
+      return;
+    }
+
     const res = await rpcHostSetScreen(eventId, mode, supabase);
     if (res.ok) {
       setScreenMode(mode);
-      setActionNotice({ type: 'success', message: `Projector screen switched to ${mode}.` });
+      setActionNotice({ type: 'success', message: `Projector screen switched to ${mode.replace('_', ' ')}.` });
       setTimeout(() => setActionNotice(null), 3000);
     } else {
       setActionNotice({ type: 'error', message: res.message });
@@ -566,18 +584,25 @@ export default function HostEventResultsPage() {
               </p>
 
               <div className="grid grid-cols-2 gap-2 mt-4">
-                {(['leaderboard', 'winner', 'raffle', 'blank'] as ScreenMode[]).map((mode) => (
+                {[
+                  { mode: 'leaderboard' as ScreenMode, label: 'Leaderboard' },
+                  { mode: 'round_summary' as ScreenMode, label: 'Round Summary' },
+                  { mode: 'audience_board' as ScreenMode, label: 'Audience Top 5' },
+                  { mode: 'winner' as ScreenMode, label: 'Winner' },
+                  { mode: 'raffle' as ScreenMode, label: 'Raffle' },
+                  { mode: 'blank' as ScreenMode, label: 'Blank' },
+                ].map(({ mode, label }) => (
                   <button
                     key={mode}
                     type="button"
                     onClick={() => handleSetProjectorScreen(mode)}
-                    className={`py-2 px-3 rounded text-xs font-bold capitalize transition-all border ${
+                    className={`py-2 px-3 rounded text-xs font-bold transition-all border ${
                       screenMode === mode
                         ? 'bg-navy-900 text-cream-50 border-navy-900 shadow-soft ring-2 ring-gold-500'
                         : 'bg-cream-50 text-navy-900 border-navy-700/20 hover:bg-cream-100'
                     }`}
                   >
-                    {mode}
+                    {label}
                   </button>
                 ))}
               </div>

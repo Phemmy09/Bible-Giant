@@ -23,6 +23,7 @@ import {
   rpcHostResetQuestion,
   rpcHostSetScreen,
   rpcHostMarkSpoken,
+  rpcHostShowRoundSummary,
 } from '@/lib/rpc';
 import { useGameState } from '@/lib/realtime/useGameState';
 import { useServerClock } from '@/lib/realtime/useServerClock';
@@ -53,7 +54,6 @@ export default function HostLiveConsolePage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [questionKeys, setQuestionKeys] = useState<Map<string, QuestionKey>>(new Map());
   const [contestants, setContestants] = useState<Contestant[]>([]);
-  const [connectedContestants, setConnectedContestants] = useState<Set<string>>(new Set());
   const [audienceCount, setAudienceCount] = useState<number>(0);
   const [liveAudienceList, setLiveAudienceList] = useState<any[]>([]);
 
@@ -76,7 +76,7 @@ export default function HostLiveConsolePage() {
   const [showSyncModal, setShowSyncModal] = useState(false);
 
   // Presence and sync status (§9.4)
-  const { inSyncCount, totalTrackedCount, laggingDevices } = usePresenceHost(
+  const { inSyncCount, totalTrackedCount, laggingDevices, connectedContestantIds } = usePresenceHost(
     eventId,
     gameState?.version ?? 0
   );
@@ -157,28 +157,6 @@ export default function HostLiveConsolePage() {
   useEffect(() => {
     fetchSetupData();
   }, [fetchSetupData]);
-
-  // Presence channel for connected contestants
-  useEffect(() => {
-    const presence = supabase.channel(`presence:${eventId}`);
-    presence
-      .on('presence', { event: 'sync' }, () => {
-        const state = presence.presenceState();
-        const active = new Set<string>();
-        Object.values(state).forEach((presences) => {
-          presences.forEach((item) => {
-            const p = item as unknown as { contestant_id?: string };
-            if (p.contestant_id) active.add(p.contestant_id);
-          });
-        });
-        setConnectedContestants(active);
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(presence);
-    };
-  }, [eventId, supabase]);
 
   // Fetch answers & scores for current question
   const activeQuestionId = gameState?.current_question_id || selectedQuestionId;
@@ -295,6 +273,44 @@ export default function HostLiveConsolePage() {
     else {
       refetch();
       soundEngine?.playCue('tick');
+    }
+  }
+
+  // Show & Start convenience (§5.3): sequentially calls Show then Open back-to-back
+  async function handleShowAndStart() {
+    if (!activeQuestionId || isCallingRpc) return;
+    setIsCallingRpc(true);
+    setErrorNotice(null);
+    const showRes = await rpcHostShowQuestion(eventId, activeQuestionId, supabase);
+    if (!showRes.ok) {
+      setIsCallingRpc(false);
+      setErrorNotice(showRes.message);
+      return;
+    }
+    refetch();
+    soundEngine?.playCue('tick');
+
+    const openRes = await rpcHostOpenQuestion(eventId, supabase);
+    setIsCallingRpc(false);
+    if (!openRes.ok) {
+      setErrorNotice(openRes.message);
+    } else {
+      refetch();
+      soundEngine?.playCue('tick');
+    }
+  }
+
+  // Round summary RPC caller (§8.1)
+  async function handleShowRoundSummary(roundId?: string) {
+    const targetRoundId = roundId || activeRound?.id || rounds[0]?.id;
+    if (!targetRoundId) return;
+    setIsCallingRpc(true);
+    setErrorNotice(null);
+    const res = await rpcHostShowRoundSummary(eventId, targetRoundId, supabase);
+    setIsCallingRpc(false);
+    if (!res.ok) setErrorNotice(res.message);
+    else {
+      refetch();
     }
   }
 
@@ -425,16 +441,58 @@ export default function HostLiveConsolePage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
+  // Canonical sort order of questions: round position, question position (§9.3)
+  const sortedQuestions = useMemo(() => {
+    const rMap = new Map(rounds.map((r) => [r.id, r.position]));
+    return [...questions].sort((a, b) => {
+      const rA = rMap.get(a.round_id) ?? 0;
+      const rB = rMap.get(b.round_id) ?? 0;
+      if (rA !== rB) return rA - rB;
+      return a.position - b.position;
+    });
+  }, [questions, rounds]);
+
+  // Questions in current active round
+  const activeRoundQuestions = useMemo(() => {
+    if (!activeRound) return [];
+    return sortedQuestions.filter((q) => q.round_id === activeRound.id);
+  }, [activeRound, sortedQuestions]);
+
+  const activeQuestionIndexInRound = useMemo(() => {
+    if (!activeQuestion) return 0;
+    const idx = activeRoundQuestions.findIndex((q) => q.id === activeQuestion.id);
+    return idx >= 0 ? idx : 0;
+  }, [activeQuestion, activeRoundQuestions]);
+
+  // Find next unplayed question in run order (§9.3)
+  const nextUnplayedQuestion = useMemo(() => {
+    if (sortedQuestions.length === 0) return null;
+    const currIdx = sortedQuestions.findIndex(
+      (q) => q.id === (activeQuestionId || gameState?.current_question_id)
+    );
+    // Search forward from current
+    const after = sortedQuestions.slice(currIdx + 1).find((q) => q.id !== gameState?.current_question_id);
+    if (after) return after;
+    // Otherwise loop back to start
+    return sortedQuestions.find((q) => q.id !== gameState?.current_question_id) || null;
+  }, [sortedQuestions, activeQuestionId, gameState?.current_question_id]);
+
+  // Check if next unplayed crosses into a new round (§9.3)
+  const nextRoundCrossed = useMemo(() => {
+    if (!nextUnplayedQuestion || !activeRound) return null;
+    if (nextUnplayedQuestion.round_id !== activeRound.id) {
+      return rounds.find((r) => r.id === nextUnplayedQuestion.round_id) || null;
+    }
+    return null;
+  }, [nextUnplayedQuestion, activeRound, rounds]);
+
   // Next question logic (selects the first unplayed question)
   function handleSelectNextUnplayed() {
-    const unplayed = questions.find((q) => {
-      return q.id !== gameState?.current_question_id;
-    });
-    if (unplayed) {
+    if (nextUnplayedQuestion) {
       if (autoBroadcastOnSelect) {
-        handleSwitchAndShowQuestion(unplayed.id);
+        handleSwitchAndShowQuestion(nextUnplayedQuestion.id);
       } else {
-        setSelectedQuestionId(unplayed.id);
+        setSelectedQuestionId(nextUnplayedQuestion.id);
       }
     }
   }
@@ -578,7 +636,7 @@ export default function HostLiveConsolePage() {
           <div className="flex items-center gap-1.5">
             <span className="text-gold-300 font-medium">Contestants:</span>
             <span className="font-mono font-bold text-cream-50">
-              {connectedContestants.size} / {contestants.length}
+              {connectedContestantIds.size} / {contestants.length}
             </span>
           </div>
           <div className="h-4 w-px bg-navy-700 hidden sm:block" />
@@ -728,6 +786,82 @@ export default function HostLiveConsolePage() {
 
         {/* COLUMN 2: CENTER STAGE CONTROLS (6 COLS) */}
         <div className="col-span-12 lg:col-span-6 flex flex-col gap-4">
+          {/* Question Navigation Bar (§9.3) */}
+          <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-card border border-navy-700/15 shadow-xs text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-navy-900">
+                Round {activeRound?.position || 1}: {activeRound?.title || 'Round'}
+              </span>
+              <span className="text-ink-500">•</span>
+              <span className="font-semibold text-gold-600">
+                Question {activeQuestionIndexInRound + 1} of {activeRoundQuestions.length || 1}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-ink-500 font-medium">Jump:</span>
+              <select
+                value={activeQuestionId || ''}
+                onChange={(e) => handleSelectQuestion(e.target.value)}
+                className="text-xs border border-navy-700/20 rounded py-1 px-2 bg-cream-50 font-medium text-navy-900 focus:outline-none focus:ring-1 focus:ring-gold-500 max-w-[200px] truncate"
+              >
+                {rounds.map((r) => {
+                  const rQuestions = sortedQuestions.filter((q) => q.round_id === r.id);
+                  return (
+                    <optgroup key={r.id} label={`Round ${r.position}: ${r.title}`}>
+                      {rQuestions.map((q, idx) => (
+                        <option key={q.id} value={q.id}>
+                          Q{idx + 1}: {(q.body || '').slice(0, 36)}...
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+
+          {/* New Round Crossed Banner (§9.3) */}
+          {nextRoundCrossed && (
+            <div className="p-3 bg-gold-500/15 border border-gold-500/40 rounded-btn flex items-center justify-between text-xs animate-fade-in">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🔔</span>
+                <div>
+                  <span className="font-bold text-navy-900 block">
+                    Next: Round {nextRoundCrossed.position} — {nextRoundCrossed.title}
+                  </span>
+                  <span className="text-[11px] text-ink-500">
+                    Round {activeRound?.position} questions finished. View summary before advancing?
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {activeRound && (
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    onClick={() => handleShowRoundSummary(activeRound.id)}
+                    className="text-xs font-bold border-navy-700/30 py-1.5 px-3 min-h-[32px]"
+                  >
+                    📊 Round Summary
+                  </Button>
+                )}
+                <Button
+                  variant="gold"
+                  size="md"
+                  onClick={() => {
+                    if (nextUnplayedQuestion) {
+                      if (autoBroadcastOnSelect) handleSwitchAndShowQuestion(nextUnplayedQuestion.id);
+                      else setSelectedQuestionId(nextUnplayedQuestion.id);
+                    }
+                  }}
+                  className="text-xs font-bold py-1.5 px-3 min-h-[32px]"
+                >
+                  Proceed to Round {nextRoundCrossed.position} →
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Main Question Card */}
           <Card className="bg-white p-6 shadow-soft flex flex-col justify-between min-h-[380px] border border-navy-700/15">
             <div>
@@ -776,7 +910,7 @@ export default function HostLiveConsolePage() {
               </div>
 
               {/* Options with Operator Answer Key */}
-              {activeQuestion?.answer_mode === 'choice' && (
+              {activeQuestion?.answer_mode === 'choice' && Array.isArray(activeQuestion.options) && (
                 <div className="grid grid-cols-2 gap-2.5 my-4">
                   {activeQuestion.options.map((opt) => {
                     const isKey = activeQuestionKey?.correct_key === opt.key;
@@ -861,6 +995,123 @@ export default function HostLiveConsolePage() {
                   </div>
                 </div>
               )}
+
+              {/* REVIEW BEFORE REVEAL PANEL (§9.2) - Shown when question is locked */}
+              {qStatus === 'locked' && (
+                <div className="my-4 p-4 rounded-card bg-cream-100 border-2 border-gold-500/60 shadow-soft animate-fade-in">
+                  <div className="flex items-center justify-between mb-3 border-b border-navy-700/15 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🔒</span>
+                      <span className="font-display text-base font-bold text-navy-900">
+                        Review Before Reveal (§9.2)
+                      </span>
+                    </div>
+                    <span className="text-xs font-semibold text-ink-500">
+                      Correct Key: <strong className="text-success text-sm">{activeQuestionKey?.correct_key || '—'}</strong>
+                    </span>
+                  </div>
+
+                  {/* Contestant summary with choices & speed */}
+                  <div className="space-y-2 mb-4">
+                    <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-navy-900">
+                      <span>Contestant Submissions</span>
+                      <span className="text-ink-500 font-mono font-normal">
+                        {currentAnswers.filter((a) => a.contestant_id).length} of {contestants.length} answered
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {contestants.map((c) => {
+                        const ans = contestantAnswersMap.get(c.id);
+                        const isCorrect =
+                          activeQuestion?.answer_mode === 'choice'
+                            ? ans?.choice_key && activeQuestionKey?.correct_key && ans.choice_key === activeQuestionKey.correct_key
+                            : ans?.is_correct === true;
+                        const elapsedSec = ans?.elapsed_ms ? (ans.elapsed_ms / 1000).toFixed(1) : null;
+
+                        return (
+                          <div
+                            key={c.id}
+                            className={`p-2.5 rounded-btn border flex items-center justify-between text-xs ${
+                              ans
+                                ? isCorrect
+                                  ? 'bg-success/15 border-success text-navy-900'
+                                  : 'bg-danger/10 border-danger/30 text-navy-900'
+                                : 'bg-white border-navy-700/10 text-ink-500'
+                            }`}
+                          >
+                            <div>
+                              <span className="font-bold text-navy-900">#{c.seat_no} {c.name}</span>
+                              <span className="block text-[10px] text-ink-500">
+                                {ans
+                                  ? `${ans.choice_key ? `Choice ${ans.choice_key}` : 'Spoken'} • ${elapsedSec}s`
+                                  : 'Waiting / No answer'}
+                              </span>
+                            </div>
+                            <span
+                              className={`font-mono font-bold text-xs ${
+                                ans
+                                  ? isCorrect
+                                    ? 'text-success font-extrabold'
+                                    : 'text-danger'
+                                  : 'text-ink-500'
+                              }`}
+                            >
+                              {ans ? (isCorrect ? '✓ Correct' : '✗ Wrong') : '—'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Audience breakdown */}
+                  {activeQuestion?.answer_mode === 'choice' && (
+                    <div className="pt-3 border-t border-navy-700/10">
+                      <div className="flex items-center justify-between text-xs font-bold text-navy-900 mb-2">
+                        <span>Audience Distribution ({audienceAnswersCount} answers)</span>
+                        <span className="text-[11px] font-normal text-ink-500">
+                          Correct: {activeQuestionKey?.correct_key ? audienceDistribution.counts[activeQuestionKey.correct_key as 'A'|'B'|'C'|'D'] || 0 : 0} votes
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                        {(['A', 'B', 'C', 'D'] as const).map((k) => {
+                          const isCorrectOpt = activeQuestionKey?.correct_key === k;
+                          return (
+                            <div
+                              key={k}
+                              className={`p-2 rounded-btn border ${
+                                isCorrectOpt
+                                  ? 'bg-success/20 border-success text-success font-bold'
+                                  : 'bg-white border-navy-700/10 text-navy-900'
+                              }`}
+                            >
+                              <span className="block text-xs font-mono">{k}</span>
+                              <span className="block font-bold text-sm">{audienceDistribution.counts[k]}</span>
+                              <span className="block text-[10px] opacity-75">{audienceDistribution.percentages[k]}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Operator Fast Reveal Action */}
+                  <div className="mt-4 pt-3 border-t border-navy-700/10 flex items-center justify-between">
+                    <span className="text-xs text-ink-500 font-medium">
+                      Press Reveal when ready to broadcast results to all screens.
+                    </span>
+                    <Button
+                      variant="primary"
+                      size="md"
+                      onClick={handleReveal}
+                      disabled={isCallingRpc}
+                      className="bg-gold-500 hover:bg-gold-400 text-navy-950 font-bold shadow-soft"
+                    >
+                      4. Reveal Results Now →
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Prominent Countdown when Question is Open */}
@@ -875,7 +1126,7 @@ export default function HostLiveConsolePage() {
               </div>
             )}
 
-            {/* STEP BUTTONS: Show -> Open -> Lock -> Reveal */}
+            {/* STEP BUTTONS: Show & Start -> Show -> Open -> Lock -> Reveal */}
             <div className="pt-4 border-t border-navy-700/10 flex flex-wrap items-center justify-between gap-3">
               <Button
                 variant="ghost"
@@ -887,14 +1138,26 @@ export default function HostLiveConsolePage() {
                 Reset Question
               </Button>
 
-              <div className="flex items-center gap-2.5">
-                {/* Step 1: SHOW */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Step 1a: SHOW & START convenience (§5.3) */}
+                <Button
+                  variant="gold"
+                  size="lg"
+                  disabled={qStatus !== 'hidden' || !activeQuestionId || isCallingRpc}
+                  onClick={handleShowAndStart}
+                  className={qStatus === 'hidden' && activeQuestionId ? 'ring-2 ring-gold-500 font-bold shadow-md' : ''}
+                  title="Shows question and opens countdown timer immediately"
+                >
+                  ⚡ Show & Start
+                </Button>
+
+                {/* Step 1b: SHOW */}
                 <Button
                   variant="primary"
                   size="lg"
                   disabled={qStatus !== 'hidden' || !activeQuestionId || isCallingRpc}
                   onClick={handleShow}
-                  className={qStatus === 'hidden' ? 'ring-2 ring-gold-500 font-bold' : ''}
+                  className={qStatus === 'hidden' && !isCallingRpc ? 'font-bold' : ''}
                 >
                   1. Show
                 </Button>
@@ -935,7 +1198,7 @@ export default function HostLiveConsolePage() {
             </div>
           </Card>
 
-          {/* Projector Screen Controls & Mirror */}
+          {/* Projector Screen Controls & Mirror (§8.1) */}
           <Card className="bg-white p-4 shadow-soft">
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs font-bold uppercase tracking-wider text-navy-900">
@@ -952,6 +1215,8 @@ export default function HostLiveConsolePage() {
                 { mode: 'predictions', label: 'Predictions' },
                 { mode: 'question', label: 'Question' },
                 { mode: 'answer', label: 'Answer' },
+                { mode: 'round_summary', label: 'Round Summary' },
+                { mode: 'audience_board', label: 'Audience Top 5' },
                 { mode: 'leaderboard', label: 'Leaderboard' },
                 { mode: 'winner', label: 'Winner' },
                 { mode: 'raffle', label: 'Raffle' },
@@ -963,7 +1228,13 @@ export default function HostLiveConsolePage() {
                   <button
                     key={mode}
                     type="button"
-                    onClick={() => handleSetScreen(mode as ScreenMode)}
+                    onClick={() => {
+                      if (mode === 'round_summary') {
+                        handleShowRoundSummary();
+                      } else {
+                        handleSetScreen(mode as ScreenMode);
+                      }
+                    }}
                     className={`px-3 py-1.5 rounded-btn text-xs font-semibold transition-all ${
                       isActive
                         ? 'bg-navy-900 text-cream-50 shadow-sm ring-2 ring-gold-500'
@@ -1001,7 +1272,7 @@ export default function HostLiveConsolePage() {
               {contestants.map((c) => {
                 const ans = contestantAnswersMap.get(c.id);
                 const score = scores.get(c.id)?.total_points || 0;
-                const isConnected = connectedContestants.has(c.id);
+                const isConnected = connectedContestantIds.has(c.id);
 
                 return (
                   <div

@@ -88,6 +88,7 @@ export interface UsePresenceHostReturn {
   totalTrackedCount: number;
   projectorConnected: boolean;
   laggingDevices: LaggingDevice[];
+  connectedContestantIds: Set<string>;
 }
 
 /**
@@ -127,15 +128,19 @@ export function usePresenceHost(
     };
   }, [eventId, supabase]);
 
-  const { inSyncCount, totalTrackedCount, projectorConnected, laggingDevices } = useMemo(() => {
+  const { inSyncCount, totalTrackedCount, projectorConnected, laggingDevices, connectedContestantIds } = useMemo(() => {
     let inSync = 0;
     let projConnected = false;
     const lagging: LaggingDevice[] = [];
+    const connectedContestants = new Set<string>();
     const now = Date.now();
 
     devices.forEach((d) => {
       if (d.role === 'projector') {
         projConnected = true;
+      }
+      if (d.role === 'contestant' && d.id) {
+        connectedContestants.add(d.id);
       }
 
       if (d.version >= currentVersion) {
@@ -157,6 +162,7 @@ export function usePresenceHost(
       totalTrackedCount: devices.length,
       projectorConnected: projConnected,
       laggingDevices: lagging,
+      connectedContestantIds: connectedContestants,
     };
   }, [devices, currentVersion]);
 
@@ -165,5 +171,6 @@ export function usePresenceHost(
     totalTrackedCount,
     projectorConnected,
     laggingDevices,
+    connectedContestantIds,
   };
 }

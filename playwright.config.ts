@@ -9,5 +9,11 @@ export default defineConfig({
     baseURL: process.env.BASE_URL || 'http://localhost:3000',
     trace: 'on-first-retry',
   },
+  webServer: {
+    command: 'npm.cmd start',
+    port: 3000,
+    reuseExistingServer: true,
+    timeout: 120000,
+  },
 });
 

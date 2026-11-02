@@ -15,20 +15,40 @@ import { Modal } from '@/components/ui/Modal';
 import { UnifiedQuestionImportModal } from '@/components/host/UnifiedQuestionImportModal';
 import { QuickAddQuestionModal } from '@/components/host/QuickAddQuestionModal';
 import { rpcHostMoveQuestion } from '@/lib/rpc';
+import {
+  DEFAULT_EVENT_ID,
+  DEFAULT_EVENT,
+  DEFAULT_ROUNDS,
+  DEFAULT_QUESTIONS,
+  DEFAULT_CONTESTANTS,
+  DEFAULT_QUESTION_KEYS,
+} from '@/lib/defaultEvent';
 
 export default function RoundsAndQuestionsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
+  const isDefaultEvent = eventId === DEFAULT_EVENT_ID;
   const supabase = useMemo(() => createClient(), []);
 
-  const [event, setEvent] = useState<Event | null>(null);
-  const [rounds, setRounds] = useState<Round[]>([]);
-  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [questionKeys, setQuestionKeys] = useState<Map<string, QuestionKey>>(new Map());
-  const [contestants, setContestants] = useState<Contestant[]>([]);
+  const [event, setEvent] = useState<Event | null>(() => (isDefaultEvent ? DEFAULT_EVENT : null));
+  const [rounds, setRounds] = useState<Round[]>(() => (isDefaultEvent ? DEFAULT_ROUNDS : []));
+  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(() =>
+    isDefaultEvent && DEFAULT_ROUNDS.length > 0 ? DEFAULT_ROUNDS[0].id : null
+  );
+  const [questions, setQuestions] = useState<Question[]>(() =>
+    isDefaultEvent ? DEFAULT_QUESTIONS : []
+  );
+  const [questionKeys, setQuestionKeys] = useState<Map<string, QuestionKey>>(() => {
+    if (!isDefaultEvent) return new Map();
+    const map = new Map<string, QuestionKey>();
+    DEFAULT_QUESTION_KEYS.forEach((k) => map.set(k.question_id, k));
+    return map;
+  });
+  const [contestants, setContestants] = useState<Contestant[]>(() =>
+    isDefaultEvent ? DEFAULT_CONTESTANTS : []
+  );
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!isDefaultEvent);
   const [error, setError] = useState<string | null>(null);
 
   // Modals
@@ -584,7 +604,15 @@ export default function RoundsAndQuestionsPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button
+              variant="ghost"
+              size="md"
+              onClick={() => setQuickAddModalOpen(true)}
+              className="font-bold border border-gold-500/40 text-navy-900 hover:bg-gold-500/10"
+            >
+              ⚡ Quick Add (Ctrl+Enter)
+            </Button>
             <Button
               variant="primary"
               size="md"

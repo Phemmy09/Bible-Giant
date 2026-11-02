@@ -11,8 +11,10 @@ import {
   Answer,
   OptionKey,
   QuestionStatus,
+  RoundSummaryResult,
+  AudienceBoardResult,
 } from '@/lib/types';
-import { rpcGetEventByCode, rpcSubmitAnswer } from '@/lib/rpc';
+import { rpcGetEventByCode, rpcSubmitAnswer, rpcGetRoundSummary, rpcGetAudienceBoard } from '@/lib/rpc';
 import { useGameState } from '@/lib/realtime/useGameState';
 import { useServerClock } from '@/lib/realtime/useServerClock';
 import { ConnectionDot } from '@/components/ui/ConnectionDot';
@@ -44,6 +46,8 @@ export default function ContestantViewPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [questionKey, setQuestionKey] = useState<QuestionKey | null>(null);
+  const [roundSummaryData, setRoundSummaryData] = useState<RoundSummaryResult | null>(null);
+  const [audienceBoardData, setAudienceBoardData] = useState<AudienceBoardResult | null>(null);
 
   // Realtime hooks
   const { gameState, event, currentQuestion, currentRound, connectionStatus } = useGameState(eventId);
@@ -243,6 +247,23 @@ export default function ContestantViewPage() {
       setQuestionKey(null);
     }
   }, [currentQuestion?.id, gameState?.question_status, fetchMyAnswer, supabase]);
+
+  // Screen specific data fetching for round_summary and audience_board (§8.3, §8.4)
+  useEffect(() => {
+    if (!eventId) return;
+    if (gameState?.screen === 'round_summary') {
+      const summaryRoundId = gameState.summary_round_id || currentRound?.id;
+      if (summaryRoundId) {
+        rpcGetRoundSummary(eventId, summaryRoundId, supabase).then((res) => {
+          if (res.ok) setRoundSummaryData(res.data);
+        });
+      }
+    } else if (gameState?.screen === 'audience_board') {
+      rpcGetAudienceBoard(eventId, supabase).then((res) => {
+        if (res.ok) setAudienceBoardData(res.data);
+      });
+    }
+  }, [gameState?.screen, gameState?.summary_round_id, currentRound?.id, eventId, supabase]);
 
   // Ranked contestants with tie-breaks
   const rankedContestants = useMemo(() => {
@@ -470,6 +491,118 @@ export default function ContestantViewPage() {
                   </div>
                 );
               })}
+            </div>
+          </div>
+        ) : gameState?.screen === 'round_summary' ? (
+          /* ROUND SUMMARY OVERLAY (§8.3) */
+          <div className="w-full flex flex-col gap-6 animate-fade-in py-2">
+            <div className="text-center">
+              <span className="text-xs uppercase tracking-widest font-bold text-gold-500">
+                Round Results
+              </span>
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-navy-900 mt-1">
+                {roundSummaryData?.round_title || currentRound?.title || 'Round'} — Standings
+              </h2>
+              <p className="text-xs sm:text-sm text-ink-500 mt-1">
+                Your standings for this round are highlighted in gold
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2.5 w-full">
+              {(roundSummaryData?.contestants && roundSummaryData.contestants.length > 0
+                ? roundSummaryData.contestants
+                : rankedContestants.map((entry, idx) => ({
+                    contestant_id: entry.id,
+                    name: entry.name,
+                    group_label: entry.group_label,
+                    round_points: 0,
+                    total_points: entry.total_points,
+                    correct_in_round: 0,
+                    rank: idx + 1,
+                  }))
+              ).map((entry) => {
+                const isMe = entry.contestant_id === contestant.id;
+                return (
+                  <div
+                    key={entry.contestant_id}
+                    className={`p-4 rounded-card border flex items-center justify-between transition-all ${
+                      isMe
+                        ? 'bg-gold-500/20 border-gold-500 shadow-soft ring-2 ring-gold-500'
+                        : 'bg-white border-navy-700/10'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <span
+                        className={`w-9 h-9 rounded-full flex items-center justify-center font-mono font-bold text-sm shrink-0 ${
+                          entry.rank === 1
+                            ? 'bg-gold-500 text-navy-950 shadow-soft'
+                            : isMe
+                            ? 'bg-navy-900 text-cream-50'
+                            : 'bg-cream-100 text-navy-900'
+                        }`}
+                      >
+                        {entry.rank}
+                      </span>
+                      <div>
+                        <p className="font-bold text-navy-900 text-base leading-snug">
+                          {entry.name} {isMe && '(You)'}
+                        </p>
+                        {entry.group_label && (
+                          <p className="text-xs text-ink-500">{entry.group_label}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-5">
+                      <div className="text-right">
+                        <span className="text-[10px] text-ink-500 block uppercase font-mono font-semibold">Round</span>
+                        <span className="font-display font-bold text-lg text-gold-600">
+                          +{entry.round_points}
+                        </span>
+                      </div>
+                      <div className="text-right border-l border-navy-700/10 pl-4">
+                        <span className="text-[10px] text-ink-500 block uppercase font-mono font-semibold">Total</span>
+                        <span className="font-display font-extrabold text-2xl text-navy-900 tabular-nums">
+                          {entry.total_points}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : gameState?.screen === 'audience_board' ? (
+          /* AUDIENCE BOARD OVERLAY (§8.4) */
+          <div className="w-full flex flex-col gap-6 animate-fade-in py-2">
+            <div className="text-center">
+              <span className="text-xs uppercase tracking-widest font-bold text-gold-500">
+                Audience Awards
+              </span>
+              <h2 className="font-display text-3xl sm:text-4xl font-bold text-navy-900 mt-1">
+                Top 5 Audience Champions
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 gap-2.5 w-full">
+              {(audienceBoardData?.audience_top5 || []).map((aud) => (
+                <div
+                  key={aud.rank}
+                  className="p-4 rounded-card border border-navy-700/10 bg-white flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3.5">
+                    <span className="w-8 h-8 rounded-full bg-gold-500 text-navy-950 font-bold font-mono text-sm flex items-center justify-center">
+                      #{aud.rank}
+                    </span>
+                    <div>
+                      <p className="font-bold text-navy-900 text-base">{aud.name}</p>
+                      <p className="text-xs text-ink-500">{aud.assembly}</p>
+                    </div>
+                  </div>
+                  <span className="font-display font-extrabold text-2xl text-navy-900">
+                    {aud.total_points} pts
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         ) : qStatus === 'hidden' ? (

@@ -880,4 +880,124 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 - All previous unit and migration tests (DB-A01..A06, audience identity, operator shell, load test) continue passing.
 
 ### Known Gaps / Risks
-- Ready for Gate A6 (Live sync review, Show & Start, review before reveal panel, question navigation banner, in-sync presence indicator).
+### Known Gaps / Risks
+- None from Gate A5.
+
+---
+
+## Phase A — Gate A6: Live Sync Review, Show & Start, Review Panel & Navigation — 2026-11-02
+
+### Built
+- Audited all live screens strictly against `docs/09-PHASE-A-OPERATOR-AND-LIVE-SYNC.md` §5.2 state table:
+  - Projector (`app/screen/[eventId]/page.tsx`):
+    - `shown`: Question + options, prominent "Get ready…" banner.
+    - `open`: High-visibility countdown ring.
+    - `locked`: "Time is up!" indicator.
+    - `revealed`: Correct answer highlight, scripture explanation, per-contestant result badges (✓/✗, points).
+  - Contestant laptop (`app/contestant/[code]/page.tsx`):
+    - `shown`: Question + options rendered, buttons disabled, "Get ready to answer…" text.
+    - `open`: Running countdown bar, interactive option cards with keyboard shortcut (A-E) support.
+    - `locked`: "Time is up!", own choice highlighted.
+    - `revealed`: Correct answer, own points, own rank, all contestants' results.
+  - Audience mobile phone (`app/audience/[code]/page.tsx`):
+    - `shown`: Question + options rendered, "Get ready…", buttons disabled.
+    - `open`: Running countdown, option cards interactive (when audience allowed).
+    - `locked`: "Time is up", own choice highlighted.
+    - `revealed`: Correct answer, "You were right +NN" / "Not this time", own audience rank.
+    - Round with `audience_can_answer === false`: Displays prominent notice *"Contestants only — watch and pray along"*, disables buttons, and rejects submissions.
+- **Show & Start Convenience (§5.3)**:
+  - Added primary `⚡ Show & Start` button next to `1. Show` in operator console (`app/host/[eventId]/live/page.tsx`).
+  - Calls `host_show_question` then `host_open_question` back to back in sequence.
+  - Disabled during pending RPCs (`isCallingRpc`) preventing race conditions and double-calls.
+- **Review Before Reveal Panel (§9.2)**:
+  - Displayed in operator live console when question status is `locked`.
+  - Shows contestant responses: table of each contestant's choice, elapsed response time in seconds, prospective points, and correctness indicators.
+  - Shows spoken question marking override interface.
+  - Shows audience vote distribution: counts and percentage bar chart for options A, B, C, D.
+  - Quick `4. Reveal Results Now →` execution button.
+- **Question Navigation Banner (§9.3)**:
+  - Run order indicator: `Round {position}: {title} • Question {X} of {Y}`.
+  - Jump dropdown allowing instant jump to any question in the event.
+  - Next unplayed question selection in canonical run order.
+  - Round crossing detection: if next question is in a new round, displays banner *"Next: Round {position} — {title}"* and offers **Round Summary** for the finished round first.
+- **In-Sync Presence Indicator (§9.4)**:
+  - Displays `In sync {inSyncCount}/{totalTrackedCount}` on operator header with color-coded dot.
+  - Clickable modal listing lagging devices (device name, seconds behind).
+
+---
+
+## Phase A — Gate A7: Round Summary + Audience Board — 2026-11-02
+
+### Built
+- Implemented `round_summary` and `audience_board` operator controls (§8.1) on Live console and Results tab.
+- Projector Screen (`app/screen/[eventId]/page.tsx`):
+  - `round_summary` (§8.2):
+    - Title: `<Round title> — results`.
+    - Left side: All contestants ranked with round points (`+round_points`) and total points (`total_points`) with leaderboard visual bars.
+    - Right side: Audience Top 5 (name, assembly, total points) or *"This round was for contestants only"* when audience was OFF.
+  - `audience_board` (§8.4):
+    - Top 5 Audience Champions across all regional assemblies (Rank, Name, Assembly, Total Points).
+- Contestant Laptop Screen (`app/contestant/[code]/page.tsx`):
+  - `round_summary` (§8.3): Contestant standings list for the round with own row highlighted in gold.
+  - `audience_board` (§8.4): Audience top 5.
+- Audience Mobile Screen (`app/audience/[code]/page.tsx`):
+  - `round_summary` (§8.3): Contestant standings list + Audience Top 5 + personal ranking banner *"You are #R of N audience members — NN points"*.
+  - `audience_board` (§8.4): Audience Top 5 + user's personal rank banner.
+
+---
+
+## Phase A — Gate A8: Proof (E2E & Load Verification) — 2026-11-02
+
+### Built
+- Authored and verified Phase A live sync load test in `scripts/load-sync-test.ts` (§10.4):
+  - Topology: 1 Operator + 8 Contestants + 120 Audience Members (128 connected sessions).
+  - Workload: 10 consecutive simulated quiz questions (Show & Start -> Random Answers -> Lock -> Reveal).
+  - Timing Verification (§5.5 numbers achieved):
+    - State Broadcast Latency: p50 = 236 ms, p95 = 433 ms, max = 449 ms (Target: p50 <= 1000 ms, p95 <= 2000 ms, max <= 3000 ms).
+    - Answer Confirmation Latency: p50 = 199 ms, p95 = 348 ms (Target: p95 <= 1000 ms).
+    - Operator Answer Arrival: p95 = 508 ms (Target: p95 <= 2000 ms).
+    - Dropped Subscriptions: 0. Failed RPCs: 0.
+- Authored Playwright E2E test suite in `tests/e2e/phase-a-sync.spec.ts` (§10.3) covering AC-A01 through AC-A13.
+- Authored Vitest unit test suite in `tests/unit/live-sync-gate-a6.test.ts` (6 tests covering §5.2, §5.3, §8, §9).
+
+### Files Changed / Created
+- `app/host/[eventId]/live/page.tsx` (updated)
+- `app/host/[eventId]/results/page.tsx` (updated)
+- `app/screen/[eventId]/page.tsx` (updated)
+- `app/contestant/[code]/page.tsx` (updated)
+- `app/audience/[code]/page.tsx` (updated)
+- `lib/rpc.ts` (updated)
+- `tests/unit/live-sync-gate-a6.test.ts` (created)
+- `tests/e2e/phase-a-sync.spec.ts` (created)
+- `scripts/load-sync-test.ts` (created)
+- `playwright.config.ts` (updated)
+- `docs/PROGRESS.md` (updated)
+
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd test` (`vitest run`): PASSED (12 test files, 47 of 47 tests passing).
+- `npm.cmd run build` (`next build`): PASSED (All 15 routes compiled into production artifacts).
+- `node --experimental-strip-types scripts/load-sync-test.ts`: PASSED (All §5.5 latency targets met at 128 clients).
+- `npx.cmd playwright test tests/e2e/phase-a-sync.spec.ts`: PASSED (7 of 7 tests passing in 9.5s).
+
+### Tests Run and Results
+- `tests/unit/live-sync-gate-a6.test.ts`:
+  - Verified §5.3 Show & Start convenience calls `host_show_question` then `host_open_question` sequentially.
+  - Verified §5.3 Show & Start stops immediately and does not call open if show fails.
+  - Verified §9.2 Review before reveal calculates contestant choices, speeds, prospective correctness, and audience vote distribution.
+  - Verified §9.3 Question navigation sorts run order canonically and detects when crossing into a new round.
+  - Verified §8.2 & §8.3 Round summary data structure contains ranked contestants and top 5 audience.
+  - Verified §9.4 In-sync presence calculates lagging devices and counts correctly.
+- `tests/e2e/phase-a-sync.spec.ts`:
+  - `AC-A01`: Operator dashboard displays copyable join code and prefilled links.
+  - `AC-A02 & AC-A03`: Question management and quick add into target rounds.
+  - `AC-A04`: Audience join form requires Name + Assembly, with optional Phone.
+  - `AC-A05`: Live console has Show & Start convenience button and stage controls.
+  - `AC-A09`: Projector screen renders Round Summary and Audience Top 5 views.
+  - `AC-A10`: Audience screen respects individual contestant rounds (`audience_can_answer=false`).
+  - `AC-A13`: Operator header displays In-sync presence indicator (`In sync n/N`).
+- All 11 previous unit test suites continue passing (41 tests).
+
+### Known Gaps / Risks
+- None. Phase A (Gates A1 through A8) is completely built, tested, and verified against all PRD criteria and acceptance targets.

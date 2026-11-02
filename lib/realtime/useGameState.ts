@@ -26,11 +26,23 @@ export interface UseGameStateReturn {
 export function useGameState(eventId: string | null | undefined): UseGameStateReturn {
   const supabase = createClient();
 
-  const [gameState, setGameState] = useState<GameState | null>(null);
-  const [event, setEvent] = useState<Event | null>(null);
-  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
-  const [currentRound, setCurrentRound] = useState<Round | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const isDefaultEvent = eventId === DEFAULT_EVENT_ID;
+
+  const [gameState, setGameState] = useState<GameState | null>(() =>
+    isDefaultEvent ? DEFAULT_GAME_STATE : null
+  );
+  const [event, setEvent] = useState<Event | null>(() =>
+    isDefaultEvent ? DEFAULT_EVENT : null
+  );
+  const [currentQuestion, setCurrentQuestion] = useState<Question | null>(() =>
+    isDefaultEvent ? DEFAULT_QUESTIONS[0] : null
+  );
+  const [currentRound, setCurrentRound] = useState<Round | null>(() =>
+    isDefaultEvent ? DEFAULT_ROUNDS[0] : null
+  );
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(() =>
+    isDefaultEvent ? 'connected' : 'connecting'
+  );
 
   const versionRef = useRef<number>(-1);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
