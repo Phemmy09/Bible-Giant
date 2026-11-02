@@ -494,3 +494,4 @@ grant execute on function
   public.host_move_question(uuid, uuid, uuid),
   public.join_as_audience(text, text, text, text)
 to authenticated;
+

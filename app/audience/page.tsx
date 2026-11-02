@@ -1,55 +1,72 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
+import { rpcJoinAsAudience } from '@/lib/rpc';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 
-export default function AudienceJoinPage() {
+function AudienceJoinForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const supabase = createClient();
 
   const [code, setCode] = useState('');
   const [name, setName] = useState('');
+  const [assembly, setAssembly] = useState('');
   const [phone, setPhone] = useState('');
-  const [region, setRegion] = useState<'Ekiti Area' | 'Ondo Area' | 'General'>('Ekiti Area');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
-  // If already registered in this session, prefill or redirect
+  // Read URL query code and local session
   useEffect(() => {
     try {
+      const urlCode = searchParams.get('code');
       const savedCode = localStorage.getItem('bible_giants_audience_code');
       const savedName = localStorage.getItem('bible_giants_audience_name');
+      const savedAssembly = localStorage.getItem('bible_giants_audience_assembly');
       const savedPhone = localStorage.getItem('bible_giants_audience_phone');
 
+      if (urlCode) {
+        setCode(urlCode.trim().toUpperCase());
+      } else if (savedCode) {
+        setCode(savedCode);
+      }
+
       if (savedName) setName(savedName);
+      if (savedAssembly) setAssembly(savedAssembly);
       if (savedPhone) setPhone(savedPhone);
-      if (savedCode) setCode(savedCode);
     } catch {
-      // Ignore
+      // Ignore localStorage errors
     } finally {
       setIsCheckingSession(false);
     }
-  }, []);
+  }, [searchParams]);
 
   async function handleJoin(e: React.FormEvent) {
     e.preventDefault();
     const cleanCode = code.trim().toUpperCase();
     const cleanName = name.trim();
+    const cleanAssembly = assembly.trim();
     const cleanPhone = phone.trim();
 
     if (!cleanCode || cleanCode.length !== 5) {
-      setError('Please enter the 5-character event code provided by the coordinator');
+      setError('Please enter the 5-character event code');
       return;
     }
-    if (!cleanName || cleanName.length < 2) {
-      setError('Please enter your full name');
+    if (!cleanName || cleanName.length < 1 || cleanName.length > 30) {
+      setError('Please enter your name (1–30 characters)');
       return;
     }
-    if (!cleanPhone || cleanPhone.replace(/\D/g, '').length < 8) {
-      setError('Please enter a valid phone number so organizers can contact you for prize awards');
+    if (!cleanAssembly || cleanAssembly.length < 1 || cleanAssembly.length > 60) {
+      setError('Please enter your assembly or church (1–60 characters)');
+      return;
+    }
+    if (cleanPhone && (cleanPhone.length < 7 || cleanPhone.length > 20 || !/^[0-9+ -]+$/.test(cleanPhone))) {
+      setError('Phone number must be between 7 and 20 digits (digits, spaces, +, -)');
       return;
     }
 
@@ -57,40 +74,69 @@ export default function AudienceJoinPage() {
     setError(null);
 
     try {
-      // Register with the server endpoint
-      const res = await fetch('/api/audience/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: cleanCode,
-          name: cleanName,
-          phone: cleanPhone,
-          region,
-        }),
-      });
+      // 1. Authenticate anonymously with Supabase if needed so auth.uid() is set
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) {
+          await supabase.auth.signInAnonymously();
+        }
+      } catch (authErr) {
+        console.warn('Anonymous sign-in note:', authErr);
+      }
 
-      const data = await res.json().catch(() => ({}));
+      // 2. Call Supabase RPC join_as_audience
+      let audienceMemberId = `aud-${Date.now()}`;
+      try {
+        const rpcRes = await rpcJoinAsAudience(cleanCode, cleanName, cleanAssembly, cleanPhone || null, supabase);
+        if (rpcRes.ok && rpcRes.data) {
+          audienceMemberId = rpcRes.data;
+        } else if (!rpcRes.ok && rpcRes.code !== 'no_event') {
+          // If RPC returned a specific error (e.g. audience_full, bad_name), inform user
+          setError(rpcRes.message);
+          setIsLoading(false);
+          return;
+        }
+      } catch (rpcErr) {
+        console.warn('RPC join warning:', rpcErr);
+      }
 
-      const audienceId = data.audience_id || `aud-${Date.now()}`;
+      // 3. Sync with server-side endpoint
+      try {
+        const res = await fetch('/api/audience/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: cleanCode,
+            name: cleanName,
+            assembly: cleanAssembly,
+            phone: cleanPhone || null,
+          }),
+        });
+        const regData = await res.json().catch(() => ({}));
+        if (regData.audience_id) {
+          audienceMemberId = regData.audience_id;
+        }
+      } catch (apiErr) {
+        console.warn('API registration warning:', apiErr);
+      }
 
-      // Save audience session locally
+      // 4. Save session locally
       localStorage.setItem('bible_giants_audience_code', cleanCode);
       localStorage.setItem('bible_giants_audience_name', cleanName);
-      localStorage.setItem('bible_giants_audience_phone', cleanPhone);
-      localStorage.setItem('bible_giants_audience_region', region);
-      localStorage.setItem('bible_giants_audience_id', audienceId);
+      localStorage.setItem('bible_giants_audience_assembly', cleanAssembly);
+      if (cleanPhone) {
+        localStorage.setItem('bible_giants_audience_phone', cleanPhone);
+      } else {
+        localStorage.removeItem('bible_giants_audience_phone');
+      }
+      localStorage.setItem('bible_giants_audience_id', audienceMemberId);
 
-      // Navigate to live audience stage
+      // 5. Navigate to audience live view
       router.push(`/audience/${cleanCode}`);
-    } catch {
-      // Even if network blips, allow audience in with local storage session
-      const fallbackId = `aud-${Date.now()}`;
-      localStorage.setItem('bible_giants_audience_code', cleanCode);
-      localStorage.setItem('bible_giants_audience_name', cleanName);
-      localStorage.setItem('bible_giants_audience_phone', cleanPhone);
-      localStorage.setItem('bible_giants_audience_region', region);
-      localStorage.setItem('bible_giants_audience_id', fallbackId);
-      router.push(`/audience/${cleanCode}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error joining event';
+      setError(msg);
+      setIsLoading(false);
     }
   }
 
@@ -138,14 +184,15 @@ export default function AudienceJoinPage() {
 
             {/* Event Code */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold text-navy-900">
+              <label htmlFor="event-code" className="text-sm font-semibold text-navy-900">
                 Event Code
               </label>
               <input
+                id="event-code"
                 type="text"
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="Enter 5-character event code"
+                placeholder="Enter 5-character code"
                 maxLength={5}
                 required
                 className="w-full min-h-[46px] text-center font-mono text-xl font-extrabold uppercase tracking-widest rounded-btn bg-cream-50 border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
@@ -154,73 +201,67 @@ export default function AudienceJoinPage() {
 
             {/* Full Name */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold text-navy-900">
-                Your Full Name
+              <label htmlFor="display-name" className="text-sm font-semibold text-navy-900">
+                Your Name <span className="text-danger">*</span>
               </label>
               <input
+                id="display-name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. David Adeyemi"
-                maxLength={50}
+                placeholder="e.g. Bro. David Adeyemi"
+                maxLength={30}
                 required
                 className="w-full min-h-[44px] px-3.5 text-base font-medium rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
               />
             </div>
 
-            {/* Phone Number */}
+            {/* Assembly / Church */}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="assembly" className="text-sm font-semibold text-navy-900">
+                Your Assembly / Church <span className="text-danger">*</span>
+              </label>
+              <input
+                id="assembly"
+                type="text"
+                value={assembly}
+                onChange={(e) => setAssembly(e.target.value)}
+                placeholder="e.g. Ado Central, Akure, Ikole"
+                maxLength={60}
+                required
+                className="w-full min-h-[44px] px-3.5 text-base font-medium rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
+              />
+            </div>
+
+            {/* Phone Number (Optional) */}
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-semibold text-navy-900">
-                  Phone Number
+                <label htmlFor="phone" className="text-sm font-semibold text-navy-900">
+                  Phone Number <span className="text-xs font-normal text-ink-500">(Optional)</span>
                 </label>
-                <span className="text-[11px] text-gold-900 font-medium">
-                  For Top 5 Prize Contact
-                </span>
               </div>
               <input
+                id="phone"
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="e.g. 0801 234 5678"
                 maxLength={20}
-                required
                 className="w-full min-h-[44px] px-3.5 text-base font-medium rounded-btn bg-white border border-navy-700/20 text-navy-900 focus:outline-none focus:ring-2 focus:ring-gold-500"
               />
-              <p className="text-[11px] text-ink-500">
-                Top 5 highest scoring audience participants will be awarded at the end of the competition.
-              </p>
             </div>
 
-            {/* Region / Area Tag */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-semibold text-navy-900">
-                Region / Area
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['Ekiti Area', 'Ondo Area', 'General'] as const).map((r) => (
-                  <button
-                    key={r}
-                    type="button"
-                    onClick={() => setRegion(r)}
-                    className={`min-h-[40px] text-xs font-bold rounded-btn border transition-all ${
-                      region === r
-                        ? 'bg-navy-900 text-cream-50 border-navy-900 shadow-sm'
-                        : 'bg-cream-100 text-ink-700 border-navy-700/15 hover:bg-cream-50'
-                    }`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Mandatory plain note per §6.1 */}
+            <p className="text-xs text-ink-500 bg-cream-50 p-3 rounded-btn border border-navy-700/10 leading-relaxed">
+              Your name and assembly are shown to the organisers and your name may appear on the big screen. Phone number is optional.
+            </p>
 
             <Button
               type="submit"
               variant="primary"
               size="lg"
               isLoading={isLoading}
-              className="w-full mt-2"
+              className="w-full mt-1"
             >
               Join Audience
             </Button>
@@ -238,5 +279,21 @@ export default function AudienceJoinPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function AudienceJoinPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-cream-50 flex items-center justify-center p-4">
+          <div className="flex flex-col items-center gap-2 text-ink-500">
+            <p className="text-sm">Loading…</p>
+          </div>
+        </main>
+      }
+    >
+      <AudienceJoinForm />
+    </Suspense>
   );
 }

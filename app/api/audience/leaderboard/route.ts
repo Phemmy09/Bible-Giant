@@ -26,14 +26,19 @@ export async function GET(request: Request) {
 
         const { data } = await adminSupabase
           .from('audience_scores')
-          .select('*')
+          .select('*, audience_members(display_name, assembly, phone)')
           .eq('event_id', eventId)
           .order('total_points', { ascending: false })
           .order('correct_count', { ascending: false })
           .order('correct_ms', { ascending: true });
 
         if (data && data.length > 0) {
-          dbScores = data;
+          dbScores = data.map((d: any) => ({
+            ...d,
+            name: d.display_name || d.audience_members?.display_name,
+            assembly: d.audience_members?.assembly || 'Unknown',
+            phone: d.phone || d.audience_members?.phone || '',
+          }));
         }
       } catch (err) {
         console.warn('Leaderboard fetch warning:', err);
@@ -47,8 +52,9 @@ export async function GET(request: Request) {
       rank: index + 1,
       id: item.id || item.audience_id,
       name: item.name || item.display_name,
-      phone: item.phone || '',
-      region: item.region || 'General',
+      assembly: item.assembly || (item as any).audience_members?.assembly || item.region || 'Unknown',
+      phone: item.phone || (item as any).audience_members?.phone || '',
+      region: item.region || item.assembly || 'General',
       total_points: item.total_points || 0,
       correct_count: item.correct_count || 0,
       correct_ms: item.correct_ms || 0,

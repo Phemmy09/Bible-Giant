@@ -667,23 +667,34 @@ export default function EventOverviewPage() {
                 <strong className="text-navy-900">{event.join_code}</strong>.
               </div>
             ) : (
-              <div className="max-h-64 overflow-y-auto divide-y divide-navy-700/10 border border-navy-700/10 rounded-btn">
+              <div className="max-h-80 overflow-y-auto divide-y divide-navy-700/10 border border-navy-700/10 rounded-btn">
                 {audience.map((m) => (
                   <div
                     key={m.id}
-                    className="p-3 flex items-center justify-between text-sm hover:bg-cream-50 transition-colors"
+                    className="p-3 flex items-center justify-between text-sm hover:bg-cream-50 transition-colors gap-2"
                   >
-                    <div>
-                      <p className="font-semibold text-navy-900">{m.display_name}</p>
-                      <p className="text-xs text-ink-500">
-                        Joined {new Date(m.joined_at).toLocaleTimeString()}
-                      </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-navy-900 truncate">{m.display_name}</p>
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-cream-100 text-ink-700 border border-navy-700/10 shrink-0">
+                          {m.assembly || 'Unknown'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-ink-500 mt-0.5">
+                        {m.phone ? (
+                          <span className="font-mono text-navy-900 font-medium">📞 {m.phone}</span>
+                        ) : (
+                          <span className="italic">No phone</span>
+                        )}
+                        <span>•</span>
+                        <span>Joined {new Date(m.joined_at).toLocaleTimeString()}</span>
+                      </div>
                     </div>
                     <Button
                       variant="ghost"
                       size="md"
                       onClick={() => handleRemoveAudience(m.id)}
-                      className="text-xs text-danger hover:bg-danger/10 border-danger/20 min-h-[32px] px-2.5 py-1"
+                      className="text-xs text-danger hover:bg-danger/10 border-danger/20 min-h-[32px] px-2.5 py-1 shrink-0"
                     >
                       Remove
                     </Button>

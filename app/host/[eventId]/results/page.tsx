@@ -48,8 +48,9 @@ export default function HostEventResultsPage() {
     rank: number;
     id: string;
     name: string;
+    assembly: string;
     phone: string;
-    region: string;
+    region?: string;
     total_points: number;
     correct_count: number;
     correct_ms: number;
@@ -351,6 +352,52 @@ export default function HostEventResultsPage() {
     URL.revokeObjectURL(url);
   }
 
+  // Audience Standings CSV Export (§6.3)
+  function handleExportAudienceCsv() {
+    if (!event) return;
+
+    const audDataList = fullAudience.length > 0 ? fullAudience : audienceScores;
+    const qMap = new Map<string, Question>();
+    questions.forEach((q) => qMap.set(q.id, q));
+
+    const audienceRows = audDataList.map((as: any, idx: number) => {
+      const memberId = as.id || as.audience_id;
+      const memberAnswers = answers.filter((a) => a.audience_id === memberId);
+
+      const row: Record<string, any> = {
+        Rank: idx + 1,
+        Name: as.name || as.display_name,
+        Assembly: as.assembly || as.region || 'Unknown',
+        Phone: as.phone || '',
+        Total_Points: as.total_points || 0,
+        Correct_Count: as.correct_count || 0,
+      };
+
+      // Per-round points
+      rounds.forEach((r) => {
+        const roundPoints = memberAnswers
+          .filter((a) => {
+            const q = qMap.get(a.question_id);
+            return q && q.round_id === r.id;
+          })
+          .reduce((sum, a) => sum + (a.points || 0), 0);
+
+        row[`Round_${r.position}_${r.title.replace(/\s+/g, '_')}`] = roundPoints;
+      });
+
+      return row;
+    });
+
+    const csvContent = Papa.unparse(audienceRows);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${event.name.replace(/\s+/g, '_')}_audience_standings.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-cream-50 flex items-center justify-center">
@@ -644,7 +691,7 @@ export default function HostEventResultsPage() {
           {/* Top 5 Audience Award Winners */}
           <Card className="p-6 bg-white border-gold-500/40 shadow-soft flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between pb-3 border-b border-navy-700/10 mb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-navy-700/10 mb-4 gap-2">
                 <div>
                   <h3 className="font-display text-xl font-bold text-navy-900 flex items-center gap-2">
                     <span>🏆 Top 5 Audience Award Winners</span>
@@ -653,9 +700,19 @@ export default function HostEventResultsPage() {
                     Official prize winners to be contacted and awarded at the close of the competition
                   </p>
                 </div>
-                <span className="text-xs font-mono font-semibold text-ink-500 bg-cream-100 px-2 py-0.5 rounded">
-                  {fullAudience.length > 0 ? fullAudience.length : audienceScores.length} registered
-                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    onClick={handleExportAudienceCsv}
+                    className="text-xs font-semibold text-navy-900 border border-navy-700/20 hover:bg-cream-100 min-h-[32px] px-2.5 py-1"
+                  >
+                    📥 Download Audience CSV
+                  </Button>
+                  <span className="text-xs font-mono font-semibold text-ink-500 bg-cream-100 px-2 py-1 rounded">
+                    {fullAudience.length > 0 ? fullAudience.length : audienceScores.length} registered
+                  </span>
+                </div>
               </div>
 
               {top5Audience.length === 0 && audienceScores.length === 0 ? (
@@ -670,7 +727,8 @@ export default function HostEventResultsPage() {
                         rank: idx + 1,
                         id: as.audience_id,
                         name: as.display_name,
-                        phone: '',
+                        assembly: (as as any).assembly || (as as any).region || 'Unknown',
+                        phone: (as as any).phone || '',
                         region: 'General',
                         total_points: as.total_points,
                         correct_count: as.correct_count,
@@ -701,7 +759,7 @@ export default function HostEventResultsPage() {
                               {winner.name}
                             </span>
                             <span className="text-[11px] text-ink-500 font-medium">
-                              {winner.region || 'General'}
+                              ⛪ {winner.assembly || winner.region || 'Unknown'}
                             </span>
                           </div>
                         </div>

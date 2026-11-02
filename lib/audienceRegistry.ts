@@ -2,8 +2,9 @@ export interface RegisteredAudience {
   id: string;
   event_id: string;
   name: string;
-  phone: string;
-  region: string;
+  assembly: string;
+  phone?: string | null;
+  region?: string;
   total_points: number;
   correct_count: number;
   answered_count: number;
@@ -26,16 +27,22 @@ export function registerAudienceMember(data: {
   id?: string;
   event_id: string;
   name: string;
-  phone: string;
+  assembly?: string;
+  phone?: string | null;
   region?: string;
 }): RegisteredAudience {
   const id = data.id || `aud-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  const cleanPhone = data.phone ? data.phone.trim() : null;
+  const cleanAssembly = (data.assembly || data.region || 'Unknown').trim();
+
   const existing = Array.from(globalAudienceRegistry.values()).find(
-    (a) => a.phone === data.phone && a.event_id === data.event_id
+    (a) => (cleanPhone && a.phone === cleanPhone && a.event_id === data.event_id) || (a.name === data.name && a.assembly === cleanAssembly && a.event_id === data.event_id)
   );
 
   if (existing) {
     existing.name = data.name;
+    existing.assembly = cleanAssembly;
+    if (cleanPhone) existing.phone = cleanPhone;
     existing.region = data.region || existing.region;
     return existing;
   }
@@ -44,8 +51,9 @@ export function registerAudienceMember(data: {
     id,
     event_id: data.event_id,
     name: data.name,
-    phone: data.phone,
-    region: data.region || 'General',
+    assembly: cleanAssembly,
+    phone: cleanPhone,
+    region: data.region || cleanAssembly,
     total_points: 0,
     correct_count: 0,
     answered_count: 0,

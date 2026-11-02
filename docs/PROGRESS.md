@@ -630,7 +630,60 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 - `tests/unit/load-test.test.ts`: Headless load test passing (P95: 428 ms < 3000 ms, 128 clients).
 
 ### Known Gaps / Risks
-- Ready for Gate A2 (Audience identity: §6 join form with name, assembly, optional phone; operator audience list; CSV download).
+- None from Gate A1.
+
+---
+
+## Phase A — Gate A2: Audience Identity — 2026-11-02
+
+### Built
+- Built complete Audience Join Form (`app/audience/page.tsx`) strictly implementing `docs/09-PHASE-A-OPERATOR-AND-LIVE-SYNC.md` §6.1:
+  - Pre-fills Event Code from URL parameter `?code=` (wrapped in `<Suspense>`).
+  - Required fields: Event Code (5 chars uppercase), Your Name (1–30 chars), and Your Assembly / Church (1–60 chars).
+  - Optional field: Phone number (7–20 digits/spaces/+/-).
+  - Plain note under form: *"Your name and assembly are shown to the organisers and your name may appear on the big screen. Phone number is optional."*
+  - Removed all hardcoded credentials/labels from public views; cleaned up inputs and responsive card styling.
+  - Rejoining from the same browser preserves identity and updates name/assembly/phone.
+- Updated audience registration endpoint (`app/api/audience/register/route.ts`) and registry (`lib/audienceRegistry.ts`) to validate and store `assembly` and optional `phone`.
+- Updated Operator Overview audience list (`app/host/[eventId]/page.tsx`):
+  - Displays Name, Assembly / Church, Phone number (or "No phone"), Joined timestamp, and Remove button per §6.3.
+- Updated Operator Results page (`app/host/[eventId]/results/page.tsx`):
+  - Added dedicated **Download audience CSV** button exporting `Name, Assembly, Phone, Total_Points, Correct_Count, Round_1_Points, Round_2_Points, ...` per §6.3.
+  - Updated Top 5 Audience Award Winners cards to prominently feature Assembly / Church and Phone number contact details for organizers.
+  - Updated Leaderboard API endpoint (`app/api/audience/leaderboard/route.ts`) to query and include `assembly` and `phone`.
+- Verified privacy invariant: Projector and Audience phone views show name and assembly only, NEVER phone numbers.
+- Built comprehensive unit test suite `tests/unit/audience-identity.test.ts` covering form validation, registry identity updates, and audience CSV export.
+
+### Files Changed / Created
+- `app/audience/page.tsx` (rewritten)
+- `app/api/audience/register/route.ts` (updated)
+- `lib/audienceRegistry.ts` (updated)
+- `app/host/[eventId]/page.tsx` (updated)
+- `app/host/[eventId]/results/page.tsx` (updated)
+- `app/api/audience/leaderboard/route.ts` (updated)
+- `tests/unit/audience-identity.test.ts` (created)
+- `docs/PROGRESS.md` (updated)
+
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run test` (`vitest run`): PASSED (8 test files, 25 of 25 tests passing).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd run build` (`next build`): PASSED (All 15 routes compiled cleanly into production artifacts).
+
+### Tests Run and Results
+- `tests/unit/audience-identity.test.ts`:
+  - Verified join form rejects invalid code lengths, missing names, overly long names (> 30), and missing assemblies.
+  - Verified assembly requirement (1–60 chars).
+  - Verified optional phone validation (accepts blank/null, rejects invalid format, accepts valid digits/spaces/+/-).
+  - Verified registry member creation and identity update on rejoin.
+  - Verified `handleExportAudienceCsv` produces valid CSV with per-round points columns.
+- `tests/unit/phase-a-migration.test.ts`: DB-A01 through DB-A06 passing.
+- `tests/unit/security-static.test.ts`: SEC-12 passing.
+- `tests/unit/load-test.test.ts`: Headless load test passing (P95: 437 ms < 3000 ms).
+
+### Known Gaps / Risks
+- Ready for Gate A3 (Operator dashboard shell: §3 join panel with copy buttons, audience/contestant links with `?code=`, live counters, projector button, unified top bar).
+
 
 
 
