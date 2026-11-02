@@ -801,12 +801,83 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 - `tests/unit/load-test.test.ts`: Headless load test passing (P95: 409 ms < 3000 ms).
 
 ### Known Gaps / Risks
-- Ready for Gate A5 (Question Import: multi-format parser for CSV, Word DOCX via `mammoth`, and text PDF via `pdfjs-dist`, 3-step preview & fix table, atomic `host_import_questions`).
+### Known Gaps / Risks
+- None from Gate A4.
 
+---
 
+## Phase A — Gate A5: Multi-Format Question Import (CSV, DOCX, Text PDF) — 2026-11-02
 
+### Built
+- Built deterministic multi-format question parser library in `lib/parsers/index.ts` strictly complying with `docs/09-PHASE-A-OPERATOR-AND-LIVE-SYNC.md` §4.5–§4.7:
+  - Line-by-line state machine recognizing questions, numbered formats (`1.`, `1)`), options `A.` through `E`, `Answer:` / `Ans:` / `Correct:` markers, `Reference:` / `Ref:` / `Scripture:`, and `Explanation:`.
+  - Multi-line question and option continuation handling without regex exponential pitfalls.
+  - Text PDF extraction using `pdfjs-dist` (pure web/standard JS workerless mode).
+  - Word DOCX extraction using `mammoth`.
+  - Scanned PDF detection: if extracted text has <10 chars or 0 alphanumeric chars, displays exact prompt: *"This PDF looks like a scan and has no readable text. Please use a Word or CSV file, or type the questions."*
+  - CSV parser handling existing RFC 4180 format.
+- Built reusable fixture generator scripts:
+  - `scripts/generate-docx-fixture.js`: constructs valid OpenXML DOCX packages via JSZip.
+  - `scripts/generate-pdf-fixture.js`: constructs standard text and blank PDF files.
+  - `scripts/create-all-fixtures.js`: generates all 5 required test fixtures and templates.
+- Created test fixtures in `tests/fixtures/`:
+  - `5-questions.docx` (valid 5 questions with options, answers, refs, explanations)
+  - `5-questions.pdf` (selectable text PDF matching docx content)
+  - `scanned-empty.pdf` (blank PDF simulating scanned document)
+  - `bad-questions.docx` (contains question with 1 option, answer letter E with only 4 options, missing answer marker)
+  - `sample-with-errors.csv` (CSV fixture with 2 deliberate syntax/option errors)
+- Provided downloadable sample templates in `public/`:
+  - `public/question-template.docx`
+  - `public/question-template.csv`
+- Built unified 3-step modal `components/host/UnifiedQuestionImportModal.tsx`:
+  - Step 1: Upload (CSV, DOCX, PDF up to 5 MB), Target Round selection, layout guidelines, template download buttons.
+  - Step 2: In-browser preview & fix table:
+    - Live cell editing for body, options A-E, correct key, scripture reference, and explanation.
+    - Real-time client-side revalidation of edited rows.
+    - Clear ✓ / ✗ indicator with plain English error messages for invalid rows.
+    - Rejected rows export to CSV.
+    - Max 500 questions safety guard.
+  - Step 3: Single atomic database call `rpcHostImportQuestions` (`host_import_questions(p_event, p_round, p_questions)`):
+    - Inserts all rows atomically or rolls back with specific item error.
+    - Displays detailed import confirmation with question count.
+- Integrated `UnifiedQuestionImportModal` into:
+  - `app/host/[eventId]/rounds/page.tsx` ("Import Questions" button in header and per-round action)
+  - `app/host/[eventId]/live/page.tsx` ("Import Questions" button in question drawer)
+- Authored test suite `tests/unit/parsers.test.ts` covering U-A01 through U-A06 (all 6 passing).
 
+### Files Changed / Created
+- `lib/parsers/index.ts` (created)
+- `types/modules.d.ts` (created)
+- `components/host/UnifiedQuestionImportModal.tsx` (created)
+- `public/question-template.docx` (created)
+- `scripts/create-all-fixtures.js` (created)
+- `scripts/generate-docx-fixture.js` (created)
+- `scripts/generate-pdf-fixture.js` (created)
+- `tests/fixtures/5-questions.docx` (created)
+- `tests/fixtures/5-questions.pdf` (created)
+- `tests/fixtures/scanned-empty.pdf` (created)
+- `tests/fixtures/bad-questions.docx` (created)
+- `tests/fixtures/sample-with-errors.csv` (created)
+- `tests/unit/parsers.test.ts` (created)
+- `app/host/[eventId]/rounds/page.tsx` (updated)
+- `app/host/[eventId]/live/page.tsx` (updated)
+- `docs/PROGRESS.md` (updated)
 
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd test` (`vitest run`): PASSED (11 test files, 41 of 41 tests passing).
+- `npm.cmd run build` (`next build`): PASSED (all 15 routes compiled cleanly).
 
+### Tests Run and Results
+- `tests/unit/parsers.test.ts`:
+  - `U-A01`: DOCX parser yields 5 valid questions matching layout.
+  - `U-A02`: Text PDF parser yields identical 5 questions.
+  - `U-A03`: Scanned/empty PDF fixture triggers scan warning message.
+  - `U-A04`: Bad questions flagged with clear validation messages (single option, invalid answer key, missing answer).
+  - `U-A05`: CSV with deliberate syntax errors detects exactly the 2 bad rows.
+  - `U-A06`: Round-trip parse → preview edit → revalidation produces valid question object for database insertion.
+- All previous unit and migration tests (DB-A01..A06, audience identity, operator shell, load test) continue passing.
 
-
+### Known Gaps / Risks
+- Ready for Gate A6 (Live sync review, Show & Start, review before reveal panel, question navigation banner, in-sync presence indicator).

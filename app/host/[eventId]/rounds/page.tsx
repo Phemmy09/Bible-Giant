@@ -12,8 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
-import { QuestionDocumentUploadModal } from '@/components/host/QuestionDocumentUploadModal';
-import { QuestionCsvImportModal } from '@/components/host/QuestionCsvImportModal';
+import { UnifiedQuestionImportModal } from '@/components/host/UnifiedQuestionImportModal';
 import { QuickAddQuestionModal } from '@/components/host/QuickAddQuestionModal';
 import { rpcHostMoveQuestion } from '@/lib/rpc';
 
@@ -897,17 +896,6 @@ export default function RoundsAndQuestionsPage() {
         </div>
       </main>
 
-      {/* Document / Question Import Modal (PDF, DOCX, Sheets, CSV) */}
-      <QuestionDocumentUploadModal
-        isOpen={csvModalOpen}
-        onClose={() => setCsvModalOpen(false)}
-        eventId={eventId}
-        rounds={rounds}
-        onSuccess={() => {
-          fetchEventData();
-        }}
-      />
-
       {/* Add / Edit Round Modal */}
       <Modal
         isOpen={roundModalOpen}
@@ -1239,6 +1227,16 @@ export default function RoundsAndQuestionsPage() {
         initialRoundId={selectedRoundId || rounds[0]?.id || ''}
         onQuestionAdded={fetchEventData}
         onCreateRoundInline={handleCreateRoundInline}
+      />
+
+      {/* Multi-Format Question Import Modal (§4.5–§4.7) */}
+      <UnifiedQuestionImportModal
+        isOpen={csvModalOpen}
+        onClose={() => setCsvModalOpen(false)}
+        eventId={eventId}
+        rounds={rounds}
+        initialRoundId={selectedRoundId || rounds[0]?.id || ''}
+        onImportSuccess={fetchEventData}
       />
     </div>
   );

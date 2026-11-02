@@ -33,7 +33,7 @@ import { Card } from '@/components/ui/Card';
 import { Countdown } from '@/components/ui/Countdown';
 import { Modal } from '@/components/ui/Modal';
 import { ScoreAdjustmentModal } from '@/components/host/ScoreAdjustmentModal';
-import { QuestionDocumentUploadModal } from '@/components/host/QuestionDocumentUploadModal';
+import { UnifiedQuestionImportModal } from '@/components/host/UnifiedQuestionImportModal';
 import { Soundboard } from '@/components/host/Soundboard';
 import { soundEngine } from '@/lib/soundEngine';
 import { usePresenceHost } from '@/lib/realtime/usePresenceSync';
@@ -1176,13 +1176,13 @@ export default function HostLiveConsolePage() {
         }}
       />
 
-      {/* Upload Questions Document Modal (PDF, DOCX, Sheets, CSV) */}
-      <QuestionDocumentUploadModal
+      {/* Upload Questions Document Modal (PDF, DOCX, CSV) (§4.5–§4.7) */}
+      <UnifiedQuestionImportModal
         isOpen={docUploadOpen}
         onClose={() => setDocUploadOpen(false)}
         eventId={eventId}
         rounds={rounds}
-        onSuccess={() => {
+        onImportSuccess={() => {
           fetchSetupData();
           refetch();
         }}
