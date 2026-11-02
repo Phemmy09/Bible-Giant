@@ -89,3 +89,4 @@ describe('Phase A Gate A3: Operator Dashboard Shell & In-Sync Presence (ยง3.1, ย
     // TypeScript ensures 'audience' is never in PresenceDevice role
   });
 });
+

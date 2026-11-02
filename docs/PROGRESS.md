@@ -752,7 +752,57 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 - `tests/unit/load-test.test.ts`: Headless load test passing (P95: 411 ms < 3000 ms).
 
 ### Known Gaps / Risks
-- Ready for Gate A4 (Questions: Quick add mode with `Ctrl+Enter`, Move to round dropdown calling `host_move_question`, reorder).
+- None from Gate A3.
+
+---
+
+## Phase A — Gate A4: Questions (Quick Add, Move to Round, Invariants) — 2026-11-02
+
+### Built
+- Implemented `components/host/QuickAddQuestionModal.tsx` strictly fulfilling `docs/09-PHASE-A-OPERATOR-AND-LIVE-SYNC.md` §4.1–§4.3:
+  - Objective by default: answer mode `choice`, 4 options (A–D), clickable letter buttons [A] [B] [C] [D] for correct answer selection.
+  - Target Round dropdown with option `+ Create New Round…` for inline round creation.
+  - Question text textarea, scripture reference (optional), explanation (optional).
+  - Fast keyboard entry: `Ctrl+Enter` (or `Cmd+Enter`) triggers **Save & Add Next**.
+  - Upon save: inserts question and question_key, clears form, increments running session counter ("N added to <round>"), preserves target round, and refocuses cursor in question text.
+  - Validation: requires question body ≥ 3 characters and non-empty options.
+- Updated `app/host/[eventId]/rounds/page.tsx`:
+  - Added **⚡ Quick Add (Ctrl+Enter)** button in the Round Header.
+  - Added **Move to round…** dropdown to each question row (§4.4) calling `rpcHostMoveQuestion` (`host_move_question`), appending to the target round and renumbering without gaps.
+  - Added "+ Create New Round" inline handler (`handleCreateRoundInline`).
+  - Added "Add to Round" dropdown inside regular Question Modal, remembering the chosen round for the session.
+  - Enforced security & game integrity invariants (§4.4):
+    - Detected answered questions from `answers` table: questions with existing answers have **Move to round…** and **Delete** buttons disabled with explanatory tooltips.
+    - Detected active live questions from `game_state`: questions currently `open` or `locked` have **Edit**, **Move**, and **Delete** disabled.
+- Built unit test suite `tests/unit/questions-gate-a4.test.ts` (5 passing tests).
+
+### Files Changed / Created
+- `components/host/QuickAddQuestionModal.tsx` (created)
+- `app/host/[eventId]/rounds/page.tsx` (updated)
+- `tests/unit/questions-gate-a4.test.ts` (created)
+- `docs/PROGRESS.md` (updated)
+
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd run test` (`vitest run`): PASSED (10 test files, 35 of 35 tests passing).
+- `npm.cmd run build` (`next build`): PASSED (All 15 routes compiled cleanly into production artifacts).
+
+### Tests Run and Results
+- `tests/unit/questions-gate-a4.test.ts`:
+  - Verified objective default (4 options A-D, default key A).
+  - Verified validation: requires question body ≥ 3 chars, rejects blank option text.
+  - Verified RPC error translation for `already_played`.
+  - Verified position append logic when moving to target round.
+  - Verified guard preventing modification or deletion of answered questions.
+- `tests/unit/operator-shell.test.ts`: 5 tests passing.
+- `tests/unit/audience-identity.test.ts`: 7 tests passing.
+- `tests/unit/phase-a-migration.test.ts`: DB-A01 through DB-A06 passing.
+- `tests/unit/load-test.test.ts`: Headless load test passing (P95: 409 ms < 3000 ms).
+
+### Known Gaps / Risks
+- Ready for Gate A5 (Question Import: multi-format parser for CSV, Word DOCX via `mammoth`, and text PDF via `pdfjs-dist`, 3-step preview & fix table, atomic `host_import_questions`).
+
 
 
 

@@ -14,6 +14,8 @@ import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { QuestionDocumentUploadModal } from '@/components/host/QuestionDocumentUploadModal';
 import { QuestionCsvImportModal } from '@/components/host/QuestionCsvImportModal';
+import { QuickAddQuestionModal } from '@/components/host/QuickAddQuestionModal';
+import { rpcHostMoveQuestion } from '@/lib/rpc';
 
 export default function RoundsAndQuestionsPage() {
   const params = useParams();
@@ -32,6 +34,12 @@ export default function RoundsAndQuestionsPage() {
 
   // Modals
   const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [quickAddModalOpen, setQuickAddModalOpen] = useState(false);
+  const [answeredQuestionIds, setAnsweredQuestionIds] = useState<Set<string>>(new Set());
+  const [liveQuestionId, setLiveQuestionId] = useState<string | null>(null);
+  const [movingQuestionId, setMovingQuestionId] = useState<string | null>(null);
+  const [targetRoundForNewQuestion, setTargetRoundForNewQuestion] = useState<string>('');
+
   const [roundModalOpen, setRoundModalOpen] = useState(false);
   const [editingRound, setEditingRound] = useState<Round | null>(null);
   const [roundForm, setRoundForm] = useState<{
@@ -131,6 +139,26 @@ export default function RoundsAndQuestionsPage() {
       const kMap = new Map<string, QuestionKey>();
       (kData || []).forEach((k) => kMap.set(k.question_id, k as QuestionKey));
       setQuestionKeys(kMap);
+
+      // 6. Answered questions check (§4.4)
+      const { data: aData } = await supabase
+        .from('answers')
+        .select('question_id')
+        .eq('event_id', eventId);
+      const ansSet = new Set<string>((aData || []).map((a) => a.question_id));
+      setAnsweredQuestionIds(ansSet);
+
+      // 7. Live Question from Game State (§4.4)
+      const { data: gsData } = await supabase
+        .from('game_state')
+        .select('current_question_id, question_status')
+        .eq('event_id', eventId)
+        .single();
+      if (gsData?.current_question_id && ['open', 'locked'].includes(gsData?.question_status)) {
+        setLiveQuestionId(gsData.current_question_id);
+      } else {
+        setLiveQuestionId(null);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error loading rounds';
       setError(msg);
@@ -282,11 +310,13 @@ export default function RoundsAndQuestionsPage() {
     setQAssignedContestant(contestants[0]?.id || '');
     setQPointsOverride('');
     setQImageFile(null);
+    setTargetRoundForNewQuestion(selectedRoundId || rounds[0]?.id || '');
     setQuestionModalOpen(true);
   }
 
   function openEditQuestionModal(q: Question) {
     setEditingQuestion(q);
+    setTargetRoundForNewQuestion(q.round_id);
     setQBody(q.body);
     setQOptions(q.options.length >= 2 ? q.options : [
       { key: 'A', text: '' },
@@ -333,7 +363,8 @@ export default function RoundsAndQuestionsPage() {
 
   async function handleSaveQuestion(e: React.FormEvent) {
     e.preventDefault();
-    if (!selectedRoundId) return;
+    const effectiveRoundId = targetRoundForNewQuestion || selectedRoundId;
+    if (!effectiveRoundId) return;
     if (qBody.trim().length < 3) {
       setError('Question text must be at least 3 characters');
       return;
@@ -347,7 +378,8 @@ export default function RoundsAndQuestionsPage() {
       }
     }
 
-    if (selectedRound?.type === 'individual' && !qAssignedContestant) {
+    const targetRoundObj = rounds.find((r) => r.id === effectiveRoundId);
+    if (targetRoundObj?.type === 'individual' && !qAssignedContestant) {
       setError('Assigned contestant is required for questions in individual rounds');
       return;
     }
@@ -369,9 +401,14 @@ export default function RoundsAndQuestionsPage() {
       }
 
       const pointsOverrideVal = qPointsOverride ? parseInt(qPointsOverride, 10) : null;
-      const assignedIdVal = selectedRound?.type === 'individual' ? qAssignedContestant || null : null;
+      const assignedIdVal = targetRoundObj?.type === 'individual' ? qAssignedContestant || null : null;
 
       if (editingQuestion) {
+        // If round changed, call rpcHostMoveQuestion
+        if (effectiveRoundId !== editingQuestion.round_id) {
+          await rpcHostMoveQuestion(eventId, editingQuestion.id, effectiveRoundId, supabase);
+        }
+
         // Update question
         const { error: qUpErr } = await supabase
           .from('questions')
@@ -402,12 +439,19 @@ export default function RoundsAndQuestionsPage() {
         }
       } else {
         // Insert question
-        const nextPos = selectedRoundQuestions.length + 1;
+        const { data: existingQ } = await supabase
+          .from('questions')
+          .select('position')
+          .eq('round_id', effectiveRoundId)
+          .order('position', { ascending: false })
+          .limit(1);
+        const nextPos = (existingQ?.[0]?.position || 0) + 1;
+
         const { data: newQ, error: qInErr } = await supabase
           .from('questions')
           .insert({
             event_id: eventId,
-            round_id: selectedRoundId,
+            round_id: effectiveRoundId,
             position: nextPos,
             body: qBody.trim(),
             options: qOptions,
@@ -436,6 +480,7 @@ export default function RoundsAndQuestionsPage() {
 
       setQuestionModalOpen(false);
       setIsSavingQuestion(false);
+      setSelectedRoundId(effectiveRoundId);
       fetchEventData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error saving question';
@@ -471,6 +516,47 @@ export default function RoundsAndQuestionsPage() {
     await supabase.from('questions').update({ position: targetQ.position }).eq('id', currentQ.id);
     await supabase.from('questions').update({ position: currentQ.position }).eq('id', targetQ.id);
     fetchEventData();
+  }
+
+  async function handleMoveQuestionToRound(questionId: string, targetRoundId: string) {
+    setMovingQuestionId(questionId);
+    setError(null);
+    const res = await rpcHostMoveQuestion(eventId, questionId, targetRoundId, supabase);
+    setMovingQuestionId(null);
+    if (!res.ok) {
+      setError(res.message);
+    } else {
+      fetchEventData();
+    }
+  }
+
+  async function handleCreateRoundInline(title: string): Promise<string | null> {
+    const newPos = rounds.length + 1;
+    const { data: newRound, error: rErr } = await supabase
+      .from('rounds')
+      .insert({
+        event_id: eventId,
+        position: newPos,
+        title: title.trim(),
+        type: 'speed',
+        max_points: 100,
+        min_points: 40,
+        time_limit_sec: 20,
+        wrong_penalty: 0,
+        first_correct_bonus: 0,
+        audience_can_answer: true,
+      })
+      .select('id')
+      .single();
+
+    if (rErr || !newRound) {
+      setError(rErr?.message || 'Failed to create round');
+      return null;
+    }
+
+    fetchEventData();
+    setSelectedRoundId(newRound.id);
+    return newRound.id;
   }
 
   const { inSyncCount, totalTrackedCount, laggingDevices } = usePresenceHost(eventId, 0);
@@ -641,9 +727,19 @@ export default function RoundsAndQuestionsPage() {
                     </p>
                   </div>
 
-                  <Button variant="gold" size="md" onClick={openAddQuestionModal}>
-                    + Add Question
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="md"
+                      onClick={() => setQuickAddModalOpen(true)}
+                      className="font-bold border border-gold-500/40 text-navy-900 hover:bg-gold-500/10 text-xs sm:text-sm"
+                    >
+                      ⚡ Quick Add (Ctrl+Enter)
+                    </Button>
+                    <Button variant="gold" size="md" onClick={openAddQuestionModal} className="text-xs sm:text-sm">
+                      + Add Question
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Questions List */}
@@ -660,6 +756,8 @@ export default function RoundsAndQuestionsPage() {
                       const key = questionKeys.get(q.id);
                       const assignedContestant = contestants.find((c) => c.id === q.assigned_contestant_id);
                       const hasProblem = q.answer_mode === 'choice' && !key?.correct_key;
+                      const hasAnswers = answeredQuestionIds.has(q.id);
+                      const isLiveQuestion = liveQuestionId === q.id;
 
                       return (
                         <div
@@ -731,16 +829,54 @@ export default function RoundsAndQuestionsPage() {
                               )}
                             </div>
 
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                              {/* Move to round dropdown (§4.4) */}
+                              <select
+                                value=""
+                                onChange={(e) => {
+                                  if (e.target.value) handleMoveQuestionToRound(q.id, e.target.value);
+                                }}
+                                disabled={hasAnswers || isLiveQuestion || movingQuestionId === q.id}
+                                title={
+                                  hasAnswers
+                                    ? 'This question has already been played and cannot be moved'
+                                    : isLiveQuestion
+                                    ? 'This question is currently live'
+                                    : 'Move question to another round'
+                                }
+                                className="text-xs bg-cream-100 hover:bg-white border border-navy-700/20 rounded px-2 py-1 text-navy-900 font-medium focus:outline-none focus:ring-1 focus:ring-gold-500 disabled:opacity-40 cursor-pointer"
+                              >
+                                <option value="" disabled>
+                                  {movingQuestionId === q.id ? 'Moving…' : 'Move to round…'}
+                                </option>
+                                {rounds
+                                  .filter((r) => r.id !== q.round_id)
+                                  .map((r) => (
+                                    <option key={r.id} value={r.id}>
+                                      Round {r.position}: {r.title}
+                                    </option>
+                                  ))}
+                              </select>
+
                               <button
                                 onClick={() => openEditQuestionModal(q)}
-                                className="font-semibold text-navy-900 hover:underline"
+                                disabled={isLiveQuestion}
+                                title={isLiveQuestion ? 'Cannot edit an active live question' : 'Edit question'}
+                                className="font-semibold text-navy-900 hover:underline disabled:opacity-40"
                               >
                                 Edit
                               </button>
                               <button
                                 onClick={() => setDeleteQuestionTarget(q)}
-                                className="font-semibold text-danger hover:underline"
+                                disabled={hasAnswers || isLiveQuestion}
+                                title={
+                                  hasAnswers
+                                    ? 'This question has already been played and cannot be deleted'
+                                    : isLiveQuestion
+                                    ? 'Cannot delete an active live question'
+                                    : 'Delete question'
+                                }
+                                className="font-semibold text-danger hover:underline disabled:opacity-40"
                               >
                                 Delete
                               </button>
@@ -882,6 +1018,22 @@ export default function RoundsAndQuestionsPage() {
         maxWidth="lg"
       >
         <form onSubmit={handleSaveQuestion} className="flex flex-col gap-4 max-h-[80vh] overflow-y-auto px-1">
+          {/* Target Round (§4.2) */}
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium text-ink-900">Add to Round</label>
+            <select
+              value={targetRoundForNewQuestion || selectedRoundId || ''}
+              onChange={(e) => setTargetRoundForNewQuestion(e.target.value)}
+              className="w-full min-h-[44px] px-4 py-2.5 rounded-btn bg-white border border-navy-700/20 text-ink-900 font-semibold"
+            >
+              {rounds.map((r) => (
+                <option key={r.id} value={r.id}>
+                  Round {r.position}: {r.title} ({r.type})
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-medium text-ink-900">Question Text</label>
             <textarea
@@ -1078,6 +1230,16 @@ export default function RoundsAndQuestionsPage() {
           </div>
         </div>
       </Modal>
+      {/* Quick Add Question Modal (§4.3) */}
+      <QuickAddQuestionModal
+        isOpen={quickAddModalOpen}
+        onClose={() => setQuickAddModalOpen(false)}
+        eventId={eventId}
+        rounds={rounds}
+        initialRoundId={selectedRoundId || rounds[0]?.id || ''}
+        onQuestionAdded={fetchEventData}
+        onCreateRoundInline={handleCreateRoundInline}
+      />
     </div>
   );
 }
