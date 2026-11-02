@@ -26,7 +26,7 @@ the contract. If this document and `schema.sql` ever differ, fix `schema.sql` to
 - `event_status`: `setup, predictions_open, predictions_locked, live, finished`
 - `round_type`: `speed, individual`
 - `question_status`: `hidden, shown, open, locked, revealed`
-- `screen_mode`: `lobby, predictions, question, answer, leaderboard, winner, raffle, blank`
+- `screen_mode`: `lobby, predictions, question, answer, leaderboard, winner, raffle, blank, round_summary, audience_board`
 
 ## 3. RPC contract (all `security definer`, `search_path = public`)
 Host RPCs call `assert_event_owner(event)` first (must be the owner AND not anonymous).
@@ -35,7 +35,7 @@ Host RPCs call `assert_event_owner(event)` first (must be the owner AND not anon
 |---|---|---|---|
 | `server_time()` → timestamptz | anyone signed in | server clock | — |
 | `get_event_by_code(code)` → `{id,name,status}` | anyone signed in | find event for join page | `no_event` |
-| `join_as_audience(code, name)` → audience id | audience | create/update member; cap check | `no_event`, `audience_full`, `bad_name` |
+| `join_as_audience(code, name, assembly, phone)` → audience id | audience | create/update member (assembly 1–60, optional phone 7–20); cap check | `no_event`, `audience_full`, `bad_name`, `bad_assembly`, `bad_phone` |
 | `join_as_contestant(code, seat, pin)` → jsonb `{ok, code?, contestant_id?, event_id?}` | contestant | verify PIN, claim seat for this session. RETURNS (never raises) so failed-attempt counting is not rolled back | codes in result: `no_event`, `bad_pin`, `locked_out`, `not_joined` |
 | `submit_prediction(contestant_id)` | audience | upsert while `predictions_open` | `closed`, `not_joined`, `no_event` |
 | `submit_answer(question_id, choice)` → jsonb `{accepted, reason?, elapsed_ms?}` | contestant/audience | validate + insert once. RETURNS (never raises) | reasons: `closed`, `late`, `already_answered`, `not_joined`, `not_your_question`, `bad_choice`, `spoken` |
@@ -52,6 +52,11 @@ Host RPCs call `assert_event_owner(event)` first (must be the owner AND not anon
 | `host_mark_spoken(event, contestant, correct)` | host | upsert spoken result + points | `bad_state` |
 | `host_adjust_score(event, contestant, delta, reason)` | host | log + recompute | `bad_reason` |
 | `host_draw_raffle(event)` → jsonb | host | pick winner, screen→`raffle` | `no_audience` |
+| `host_show_round_summary(event, round)` | host | screen→`round_summary`, summary_round_id→round | `not_owner`, `bad_state` |
+| `get_round_summary(event, round)` → jsonb | host / member | return contestants and audience top 5 for round | `closed`, `bad_state`, `no_event` |
+| `get_audience_board(event)` → jsonb | host / member | return overall audience top 5 | `closed`, `no_event` |
+| `host_import_questions(event, round, questions)` → int | host | atomic insert up to 500 questions + keys at end of round | `not_owner`, `bad_state`, `bad_question` |
+| `host_move_question(event, question, round)` | host | move question to target round and renumber without gaps | `not_owner`, `bad_state`, `already_played` |
 | `recompute_scores(event)` | internal | rebuild both score tables | — |
 
 Every RPC that changes `game_state` increments `game_state.version` (clients ignore older versions).

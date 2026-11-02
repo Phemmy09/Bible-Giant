@@ -572,6 +572,67 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 ### Assumptions Made (Q-numbers)
 - None new. All open questions resolved per `docs/OPEN_QUESTIONS.md`.
 
+---
+
+## Phase A — Gate A1: Migration — 2026-11-02
+
+### Built
+- Authored canonical Phase A migration script `supabase/migrations/002_phase_a.sql` adhering strictly to `docs/09-PHASE-A-OPERATOR-AND-LIVE-SYNC.md` §7:
+  - Added `assembly text not null` (with length check 1–60) and `phone text` (with length check 7–20 and numeric format check) to `public.audience_members`.
+  - Added `'round_summary'` and `'audience_board'` to `public.screen_mode` enum.
+  - Added `summary_round_id uuid references public.rounds(id)` to `public.game_state`.
+  - Replaced `join_as_audience` with 4-parameter signature `join_as_audience(p_code text, p_name text, p_assembly text, p_phone text)` enforcing assembly validation (`bad_assembly`) and phone validation (`bad_phone`), with blank phone stored as null.
+  - Implemented `host_show_round_summary(p_event uuid, p_round uuid)` setting `screen = 'round_summary'`, `summary_round_id = p_round`, and bumping state version.
+  - Implemented `get_round_summary(p_event uuid, p_round uuid) returns jsonb`: owner access always, member access guarded to `screen = 'round_summary'` for the round (raising `closed` otherwise), returning contestants ranked by total points and audience top 5 (empty if audience disabled for the round). Phone is strictly excluded.
+  - Implemented `get_audience_board(p_event uuid) returns jsonb` returning overall audience top 5; guarded to `screen = 'audience_board'` for members. Phone is strictly excluded.
+  - Implemented `host_import_questions(p_event uuid, p_round uuid, p_questions jsonb) returns int`: owner only; atomic validation and insert of up to 500 questions into `questions` and `question_keys` in one transaction at round end. Any invalid item raises `bad_question` with the item number and rejects all items atomically.
+  - Implemented `host_move_question(p_event uuid, p_question uuid, p_round uuid)`: owner only; refuses played or current questions (`already_played`), moves question to target round and renumbers source round with temporary offset `+10000` to avoid unique constraint violations.
+  - Updated grants: granted all 5 new RPCs and updated `join_as_audience` to `authenticated`. Maintained internal helper functions (`recompute_scores`, `assert_event_owner`, `gen_join_code`) strictly ungranted.
+- Updated `supabase/schema.sql` so that a fresh deployment ends in identical schema state.
+- Updated `lib/types.ts` with Phase A definitions (`ScreenMode`, `AudienceMember`, `GameState`, `RoundSummaryResult`, `AudienceBoardResult`).
+- Updated `lib/rpc.ts` with typed execution wrappers for all new Phase A RPCs.
+- Updated `lib/errors.ts` with user-facing messages for `bad_assembly`, `bad_phone`, and `bad_question`.
+- Updated `docs/03-DATA-AND-SECURITY.md` RPC contract table §3 and `docs/05-SCREENS.md` screen descriptions.
+- Recorded decisions Q-A101 through Q-A104 in `docs/OPEN_QUESTIONS.md`.
+- Implemented comprehensive migration and database verification test suite in `tests/unit/phase-a-migration.test.ts` (DB-A01 through DB-A06).
+
+### Files Changed / Created
+- `supabase/migrations/002_phase_a.sql` (created)
+- `supabase/schema.sql` (updated)
+- `tests/unit/phase-a-migration.test.ts` (created)
+- `lib/types.ts` (updated)
+- `lib/rpc.ts` (updated)
+- `lib/errors.ts` (updated)
+- `docs/03-DATA-AND-SECURITY.md` (updated)
+- `docs/05-SCREENS.md` (updated)
+- `docs/OPEN_QUESTIONS.md` (updated)
+- `docs/PROGRESS.md` (updated)
+
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run test` (`vitest run`): PASSED (7 test files, 18 of 18 tests passing, including DB-A01 through DB-A06 and load test).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd run build` (`next build`): PASSED (All 15 routes compiled cleanly into production artifacts).
+
+### Tests Run and Results
+- `tests/unit/phase-a-migration.test.ts`:
+  - `DB-A01`: Verified upgrade migration `002_phase_a.sql` and fresh `schema.sql` produce identical schemas, enum additions, column additions, RPC contracts, and grants.
+  - `DB-A02`: Verified `join_as_audience` enforces assembly (1–60 chars, `bad_assembly`), phone format (7–20 digits, `bad_phone`), and accepts blank/null phone.
+  - `DB-A03`: Verified `host_import_questions` validation rules, atomic rejection of bad items naming exact item number, and 500-question limit.
+  - `DB-A04`: Verified `host_move_question` refuses played questions (`already_played`) and renumbers both rounds without gaps.
+  - `DB-A05`: Verified `get_round_summary` returns data only when `screen = 'round_summary'`, never returns phone numbers, limits audience top 5, and returns empty top 5 when audience is disabled.
+  - `DB-A06`: Verified `get_audience_board` limits to top 5 and never exposes phone numbers.
+- `tests/unit/security-static.test.ts`: SEC-12 passing (0 occurrences of service_role in app, components, lib).
+- `tests/unit/scoring.test.ts`: U-01, U-02, U-03 passing.
+- `tests/unit/csv.test.ts`: U-04 passing.
+- `tests/unit/join-code.test.ts`: U-06 passing.
+- `tests/unit/errors.test.ts`: U-05 passing.
+- `tests/unit/load-test.test.ts`: Headless load test passing (P95: 428 ms < 3000 ms, 128 clients).
+
+### Known Gaps / Risks
+- Ready for Gate A2 (Audience identity: §6 join form with name, assembly, optional phone; operator audience list; CSV download).
+
+
 
 
 

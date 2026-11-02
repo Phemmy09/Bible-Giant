@@ -11,9 +11,10 @@ disabled/pending state while calling the server.
 - Footer: small text "Apostolic Faith".
 
 ## S-02 Audience join `/audience`
-- Fields: Event code (5 chars, auto-uppercase), Your name (1–30).
-- Button **Join**. Errors: "We could not find that code", "This event is full", "Please enter your name".
-- On success → `/audience/[code]`. If already joined in this browser → redirect straight there.
+- Fields: Event code (5 chars, auto-uppercase, pre-filled when `?code=` in URL), Your name (1–30, required), Your assembly / church (1–60, required), Phone number (optional, 7–20 characters).
+- Plain note: "Your name and assembly are shown to the organisers and your name may appear on the big screen. Phone number is optional."
+- Button **Join**. Errors: "We could not find that code", "This event is full", "Please enter your name", "Please enter your assembly or church", "Invalid phone number".
+- On success → `/audience/[code]`. If already joined in this browser → redirect straight there. Rejoining updates name, assembly, and phone.
 
 ## S-03 Audience view `/audience/[code]`
 Single page that switches view by `events.status` + `game_state`:
@@ -22,12 +23,12 @@ Single page that switches view by `events.status` + `game_state`:
 3. **Question** (`shown`): question text + options (disabled) + "Get ready".
 4. **Open**: countdown ring, option buttons (large tap targets). After tap: option highlighted + "Answer received". If round has `audience_can_answer = false`: "Watch and pray along" and no buttons.
 5. **Locked**: "Time is up".
-6. **Revealed**: correct option highlighted; "You were right! +NN" or "Not this time"; short explanation if present; mini leaderboard of audience (top 10 + your rank).
-7. **Leaderboard/Winner/Raffle** (when `screen` is those): the contestant leaderboard, winner card, or raffle result ("Congratulations <name>!").
-- Header always shows: name, connection dot (green/red), audience points.
+6. **Revealed**: correct option highlighted; "You were right! +NN" or "Not this time"; short explanation if present; mini leaderboard of audience (top 5 + your rank).
+7. **Round summary / Audience board / Leaderboard / Winner / Raffle** (when `screen` is those): round summary (standings + own audience rank), overall top 5 audience, contestant leaderboard, winner card, or raffle result.
+- Header always shows: name, connection dot (green/red), audience points. Phone is NEVER shown.
 
 ## S-04 Contestant sign-in `/contestant`
-- Fields: Event code, Seat number (1–8 picker), PIN (4 digits, numeric keypad on mobile).
+- Fields: Event code (pre-filled when `?code=` in URL), Seat number (1–8 picker), PIN (4 digits, numeric keypad on mobile).
 - Button **Enter**. Errors: "Wrong PIN", "Too many attempts — ask the operator to reset your PIN", "No event found".
 
 ## S-05 Contestant view `/contestant/[code]`
@@ -38,9 +39,9 @@ Large-type, laptop-first, zero distractions.
    - Individual round, not assigned to me: "<Name> is answering" + question text read-only.
 4. **Locked**: "Time is up" + my choice highlighted (or "No answer").
 5. **Revealed**: correct option in green, my option red if wrong; "+NN points" with elapsed time ("You answered in 3.4 s"); explanation; **my rank and score**; all contestants' results row list (name, correct/wrong/none, +points).
-6. **Leaderboard** (when screen = leaderboard): full contestant leaderboard.
+6. **Round summary / Leaderboard**: contestant standings list with own row highlighted.
 7. **Winner / Raffle / Blank** when `screen` says so (blank = dark neutral screen).
-- Header: name, seat, score, rank, connection status. Never shows other contestants' choices before reveal.
+- Header: name, seat, score, rank, connection status. Never shows other contestants' choices before reveal. Presence reports applied version for the operator in-sync indicator.
 
 ## S-06 Operator login `/host/login`
 - Email, password, **Sign in**. Error: "Wrong email or password". Redirects to `/host`.
@@ -50,12 +51,18 @@ Large-type, laptop-first, zero distractions.
 - Each row: **Open**, **Rename**, **Delete** (type event name to confirm). **Sign out** in header.
 
 ## S-08 Event overview `/host/[eventId]`
-- Giant join code card ("Audience & contestants join with this code") + copy button.
-- Status stepper: Setup → Predictions open → Predictions locked → Live → Finished, with the one valid next button
-  ("Open predictions", "Lock predictions", "Start contest", "Finish contest") and allowed back-steps with confirmation.
+- **Join panel** (always visible at top):
+  - Event code (huge, one code for both contestants & audience) + **Copy** button.
+  - Audience link `https://<site>/audience?code=ABCDE` + Copy button.
+  - Contestant link `https://<site>/contestant?code=ABCDE` + Copy button.
+  - Instruction line: "Contestants: enter this code, your seat number and your PIN. Audience: enter this code and your name."
+  - **Show code on projector** button (sets projector to `lobby`).
+  - Live counters: contestants signed in n/N · audience joined n/cap · projector connected yes/no.
+- Unified top bar on every tab: event name, status chip, connection status, join code (small, copyable), in-sync indicator ("In sync n/N").
+- Status stepper: Setup → Predictions open → Predictions locked → Live → Finished, with the one valid next button.
 - **Ready check** panel (FR-023/024) listing each issue with a link to fix it; green when OK.
 - Cards: Contestants (n/8, n claimed), Rounds (n, questions n), Audience (n/cap).
-- Audience list (live, scrollable, name + joined time) with a **Remove** button per member.
+- Audience list (live, scrollable, name + assembly + phone + joined time) with a **Remove** button per member (phone visible to host only).
 - Prediction counts per contestant (live bars) when predictions exist.
 - Navigation tabs: Overview · Contestants · Rounds · Live console · Results.
 
@@ -66,46 +73,53 @@ Large-type, laptop-first, zero distractions.
 
 ## S-10 Rounds & questions `/host/[eventId]/rounds`
 - Left: rounds list (drag handles or Up/Down buttons to reorder), **Add round**.
-- Round editor: title, type, max/min points, time limit, wrong penalty, first-correct bonus, audience can answer.
-- Right: questions of the selected round, each row: number, text preview, correct key, scripture, assigned contestant (individual), status icon (valid / has problem). Up/Down reorder, Edit, Delete.
-- Question editor (modal or side panel): text, options A–E (add/remove, min 2), correct option radio, scripture ref, explanation, answer mode, assigned contestant (required if individual), points override (optional), image upload.
-- **Import CSV** button: file picker → preview table with per-row ✓/✗ and error messages → **Import valid rows** → summary; link to download template and to download rejected rows.
-- Editing is blocked for a question that is currently `open`/`locked`.
+- Round editor: title, type, max/min points, time limit, wrong penalty, first-correct bonus, toggle "Audience can play this round" (`audience_can_answer`).
+- Right: questions of the selected round, each row: number, text preview, correct key, scripture, assigned contestant (individual), status icon. Up/Down reorder, Edit, Delete, **Move to round…** (dropdown).
+- Question creation defaults: answer mode `choice`, 4 options (A–D), correct answer chosen by clicking a letter. "Add to round" dropdown remembers last chosen round.
+- **Quick add mode**: compact form with round dropdown, question text, options A–D, correct letter buttons, scripture ref, explanation. `Ctrl+Enter` or **Save & add next** saves, clears, keeps the round, and focuses the question box.
+- **Import dialog** (CSV, Word `.docx`, PDF text):
+  - Step 1: Choose file & round dropdown.
+  - Step 2: In-browser parse, preview & fix table (editable cells, plain-language problem flags, N ready, M need attention).
+  - Step 3: Single atomic database call (`host_import_questions`). Download rejected rows if any.
+- Editing/moving/deleting blocked for questions currently open/locked or already played.
 
 ## S-11 Live console `/host/[eventId]/live`  (the operator's main screen)
 Three-column layout (≥1280 px), nothing scrolls on a 1366×768 laptop for the primary controls.
-- **Top bar**: event name, status chip, connection status (green "Live" / red "Reconnecting…"), contestants connected n/N, audience n.
-- **Left column — Run order**: rounds and questions list with status markers (not shown / done / current). Click a question to select it (does not show it yet). Round title headers show round type.
+- **Top bar**: event name, status chip, connection status (green "Live" / red "Reconnecting…"), join code, in-sync indicator ("In sync n/N" with popup showing lagging devices), contestants connected n/N, audience n.
+- **Left column — Run order**: rounds and questions list with status markers. Click a question to select it. Round headers show type.
 - **Center column — Stage controls**:
-  - Current question card: round name, question number, text, options with the correct one marked (operator only), scripture ref.
-  - Status chip (hidden / shown / open / locked / revealed) and a countdown when open.
-  - Big step buttons: **Show** → **Open** → **Lock** → **Reveal** (only the valid next one is enabled and highlighted; Space triggers it). Secondary: **Reset question** (confirm).
-  - Spoken mode: two buttons per contestant: **Correct** / **Wrong** (current state highlighted).
-  - Projector controls: **Lobby · Predictions · Question · Leaderboard · Winner · Raffle · Blank** (current highlighted).
-- **Right column — Contestants**: one card per contestant: name, seat, connected dot, answer state (— / answered ✓ / chosen key / elapsed ms after lock), points after reveal, total score.
-- **Bottom or right-bottom — Contestant view mirror**: a small live preview of what contestants currently see (question + status). **Audience** mini-panel: joined count, number who have answered.
-- Footer actions: **Next question** (selects the next unplayed question), **Finish round**.
-- When status is `open`, the whole center shows the countdown prominently.
+  - Current question card: round name, question number, text, options with correct one marked (operator only), scripture ref.
+  - Status chip and countdown when open.
+  - Big step buttons: **Show** and **Show & Start** (calls show then open sequentially) → **Open** → **Lock** → **Reveal**. Secondary: **Reset question** (confirm).
+  - Review before reveal panel: after Lock, shows contestants' answers, elapsed seconds, and audience vote distribution bar chart (A/B/C/D).
+  - Question navigation: **Next question** selects next unplayed question; if entering a new round, a banner announces "New round: <title>" and offers **Round summary** for finished round first.
+  - Projector controls: **Lobby · Predictions · Question · Answer · Leaderboard · Round summary · Audience top 5 · Winner · Raffle · Blank**.
+- **Right column — Contestants**: live contestants cards with answer status, elapsed time, points, and score.
+- **Bottom — Audience mini-panel**: joined count, answered count, vote distribution.
 
 ## S-12 Results `/host/[eventId]/results`
 - Final contestant leaderboard with tie-break columns (points, correct, total correct time).
-- Score adjustments: form (contestant, ± points, reason required) + log table.
-- Winner button (shows Winner on projector). Audience leaderboard (top 10).
-- Raffle: **Draw winner** button, history list of draws (name, pool kind, pool size, time). Draw result also appears on projector.
+- Score adjustments: form + log table.
+- Winner button, **Round summary** button, **Audience top 5** button.
+- Audience leaderboard (top 5 with name, assembly, points).
+- **Download audience CSV** (name, assembly, phone, total points, correct count, per-round points).
+- Raffle: **Draw winner** button, history list of draws.
 - Export: **Download results CSV** (contestant leaderboard + per-question results).
 
 ## S-13 Projector `/screen/[eventId]`
-Dark navy full-bleed, very large type, no scrollbars, no buttons except a small fullscreen icon (bottom-right, appears on mouse move).
+Dark navy full-bleed, very large type, no scrollbars, fullscreen button bottom-right.
 Modes (follows `game_state.screen`):
 - **lobby**: event name, big join code, "Join the competition", audience joined count.
-- **predictions**: "Who will win?" with each contestant (photo, name) and live prediction counts or percentages.
-- **question**: round title, question text (≥56 px), options as large lettered cards, countdown ring when open, "Get ready" when shown, status "Time is up" when locked. Individual round: shows "<Name>" chip for whom it is.
-- **answer**: correct option highlighted, scripture reference, explanation, and a row per contestant with ✓/✗, points, time.
-- **leaderboard**: contestants ranked with animated bars (CSS only) and points; rank change arrows are NOT required.
+- **predictions**: "Who will win?" with contestants and live prediction counts.
+- **question**: round title, question text (≥56 px), options cards, countdown ring when open, "Get ready" when shown, "Time is up" when locked.
+- **answer**: correct option highlighted, scripture reference, explanation, per-contestant row with ✓/✗, points, time.
+- **round_summary**: "<Round title> — results", left: all contestants ranked with round points and total points; right: Audience top 5 (name, assembly, total points) or "Contestants only" notice.
+- **audience_board**: Overall audience top 5 (name, assembly, total points).
+- **leaderboard**: contestants ranked with animated bars and points.
 - **winner**: champion name large with photo, final score, second and third listed.
-- **raffle**: "Raffle winner" and the audience member's name large.
+- **raffle**: "Raffle winner" and winner name large.
 - **blank**: plain navy with the small wordmark.
-- Updates in place with a 300 ms fade only. Shows a small "Reconnecting…" badge in a corner when offline — never an error page.
+- Updates in place with 300 ms fade. Presence reports applied version for operator in-sync tracking. Shows "Reconnecting…" badge when offline.
 
 ## S-14 Global error and 404
 - Friendly page with a **Go home** button. Network-offline banner across the top of every page when `navigator.onLine` is false.

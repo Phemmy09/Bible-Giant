@@ -22,7 +22,9 @@ export type ScreenMode =
   | 'leaderboard'
   | 'winner'
   | 'raffle'
-  | 'blank';
+  | 'blank'
+  | 'round_summary'
+  | 'audience_board';
 
 export type OptionKey = 'A' | 'B' | 'C' | 'D' | 'E';
 
@@ -59,6 +61,7 @@ export interface AudienceMember {
   event_id: string;
   auth_user_id: string;
   display_name: string;
+  assembly: string;
   phone?: string | null;
   region?: string | null;
   joined_at: string;
@@ -103,6 +106,7 @@ export interface GameState {
   event_id: string;
   current_round_id: string | null;
   current_question_id: string | null;
+  summary_round_id?: string | null;
   question_status: QuestionStatus;
   screen: ScreenMode;
   opened_at: string | null;
@@ -171,4 +175,53 @@ export interface RaffleDraw {
   pool_size: number;
   drawn_at: string;
 }
+
+export interface RoundSummaryContestant {
+  contestant_id: string;
+  name: string;
+  group_label: string | null;
+  round_points: number;
+  total_points: number;
+  correct_in_round: number;
+  rank: number;
+}
+
+export interface RoundSummaryAudienceTop5 {
+  name: string;
+  assembly: string;
+  round_points: number;
+  total_points: number;
+  rank: number;
+}
+
+export interface RoundSummaryMyAudience {
+  rank: number;
+  total_points: number;
+  round_points: number;
+}
+
+export interface RoundSummaryResult {
+  round_title: string;
+  contestants: RoundSummaryContestant[];
+  audience_top5: RoundSummaryAudienceTop5[];
+  my_audience: RoundSummaryMyAudience | null;
+}
+
+export interface AudienceBoardTop5 {
+  name: string;
+  assembly: string;
+  total_points: number;
+  rank: number;
+}
+
+export interface AudienceBoardMyAudience {
+  rank: number;
+  total_points: number;
+}
+
+export interface AudienceBoardResult {
+  audience_top5: AudienceBoardTop5[];
+  my_audience: AudienceBoardMyAudience | null;
+}
+
 

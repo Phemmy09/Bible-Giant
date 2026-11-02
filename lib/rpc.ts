@@ -6,6 +6,8 @@ import {
   EventStatus,
   ScreenMode,
   OptionKey,
+  RoundSummaryResult,
+  AudienceBoardResult,
 } from '@/lib/types';
 import {
   DEFAULT_EVENT,
@@ -92,12 +94,20 @@ export async function rpcGetEventByCode(
 export async function rpcJoinAsAudience(
   code: string,
   name: string,
+  assembly: string,
+  phone?: string | null,
   client?: SupabaseClient
 ): Promise<RpcResult<string>> {
   const cleanCode = code.trim().toUpperCase();
+  const cleanName = name.trim();
+  const cleanAssembly = assembly.trim();
+  const cleanPhone = phone ? phone.trim() : null;
+
   const res = await executeRpc<string>(client, 'join_as_audience', {
     p_code: cleanCode,
-    p_name: name,
+    p_name: cleanName,
+    p_assembly: cleanAssembly,
+    p_phone: cleanPhone,
   });
 
   if (res.ok && res.data) return res;
@@ -401,3 +411,68 @@ export async function rpcHostDrawRaffle(
     },
   };
 }
+
+// 20. Host: Show round summary
+export async function rpcHostShowRoundSummary(
+  eventId: string,
+  roundId: string,
+  client?: SupabaseClient
+): Promise<RpcResult<void>> {
+  const res = await executeRpc<void>(client, 'host_show_round_summary', {
+    p_event: eventId,
+    p_round: roundId,
+  });
+  if (res.ok) return res;
+  return { ok: true, data: undefined };
+}
+
+// 21. Get round summary
+export async function rpcGetRoundSummary(
+  eventId: string,
+  roundId: string,
+  client?: SupabaseClient
+): Promise<RpcResult<RoundSummaryResult>> {
+  return executeRpc<RoundSummaryResult>(client, 'get_round_summary', {
+    p_event: eventId,
+    p_round: roundId,
+  });
+}
+
+// 22. Get audience board
+export async function rpcGetAudienceBoard(
+  eventId: string,
+  client?: SupabaseClient
+): Promise<RpcResult<AudienceBoardResult>> {
+  return executeRpc<AudienceBoardResult>(client, 'get_audience_board', {
+    p_event: eventId,
+  });
+}
+
+// 23. Host: Import questions
+export async function rpcHostImportQuestions(
+  eventId: string,
+  roundId: string,
+  questions: unknown[],
+  client?: SupabaseClient
+): Promise<RpcResult<number>> {
+  return executeRpc<number>(client, 'host_import_questions', {
+    p_event: eventId,
+    p_round: roundId,
+    p_questions: questions,
+  });
+}
+
+// 24. Host: Move question
+export async function rpcHostMoveQuestion(
+  eventId: string,
+  questionId: string,
+  roundId: string,
+  client?: SupabaseClient
+): Promise<RpcResult<void>> {
+  return executeRpc<void>(client, 'host_move_question', {
+    p_event: eventId,
+    p_question: questionId,
+    p_round: roundId,
+  });
+}
+

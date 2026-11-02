@@ -6,14 +6,15 @@ A failure on the day is not acceptable. Correctness and reliability beat clevern
 
 ## 0. Source of truth (in priority order)
 1. `CLAUDE.md` (this file)
-2. `docs/01-PRD.md` — what to build (scope is LOCKED)
-3. `docs/04-GAME-RULES-AND-SCORING.md` — state machines and scoring (exact)
-4. `docs/03-DATA-AND-SECURITY.md` + `supabase/schema.sql` — data, RLS, RPCs (exact)
-5. `docs/05-SCREENS.md` — every screen and element
-6. `docs/02-ARCHITECTURE.md` — stack, routes, structure
-7. `docs/06-DESIGN-SYSTEM.md` — look and feel
-8. `docs/07-BUILD-PLAN.md` — the order of work and the gates
-9. `docs/08-TEST-PLAN.md` — how "done" is proven
+2. `docs/09-PHASE-A-OPERATOR-AND-LIVE-SYNC.md` — CURRENT PHASE: overrides docs 01–08 wherever they conflict (see its §2)
+3. `docs/01-PRD.md` — what to build (scope is LOCKED)
+4. `docs/04-GAME-RULES-AND-SCORING.md` — state machines and scoring (exact)
+5. `docs/03-DATA-AND-SECURITY.md` + `supabase/schema.sql` — data, RLS, RPCs (exact)
+6. `docs/05-SCREENS.md` — every screen and element
+7. `docs/02-ARCHITECTURE.md` — stack, routes, structure
+8. `docs/06-DESIGN-SYSTEM.md` — look and feel
+9. `docs/07-BUILD-PLAN.md` — the order of work and the gates
+10. `docs/08-TEST-PLAN.md` — how "done" is proven
 
 If two documents disagree, the higher one wins. If something is not specified, DO NOT GUESS:
 write the question in `docs/OPEN_QUESTIONS.md`, choose the SIMPLEST safe option, mark it
