@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Round, Question, QuestionKey, Contestant, Event, OptionKey, QuestionOption } from '@/lib/types';
 import { HostHeader } from '@/components/host/HostHeader';
 import { HostNavTabs } from '@/components/host/HostNavTabs';
+import { usePresenceHost } from '@/lib/realtime/usePresenceSync';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -472,9 +473,19 @@ export default function RoundsAndQuestionsPage() {
     fetchEventData();
   }
 
+  const { inSyncCount, totalTrackedCount, laggingDevices } = usePresenceHost(eventId, 0);
+
   return (
     <div className="min-h-screen bg-cream-50 flex flex-col">
-      <HostHeader eventName={event?.name} />
+      <HostHeader
+        eventName={event?.name}
+        eventStatus={event?.status}
+        joinCode={event?.join_code}
+        eventId={eventId}
+        inSyncCount={inSyncCount}
+        totalTrackedCount={totalTrackedCount}
+        laggingDevices={laggingDevices}
+      />
       <HostNavTabs eventId={eventId} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-8 flex flex-col gap-6">

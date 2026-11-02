@@ -19,6 +19,7 @@ import { useGameState } from '@/lib/realtime/useGameState';
 import { useServerClock } from '@/lib/realtime/useServerClock';
 import { Countdown } from '@/components/ui/Countdown';
 import { computeLeaderboard } from '@/lib/scoring';
+import { usePresenceClient } from '@/lib/realtime/usePresenceSync';
 
 export default function ProjectorDisplayPage() {
   const params = useParams();
@@ -27,6 +28,15 @@ export default function ProjectorDisplayPage() {
 
   const { gameState, event, currentQuestion, currentRound, connectionStatus } = useGameState(eventId);
   const { getServerNow } = useServerClock();
+
+  // Presence reporting (§9.4)
+  usePresenceClient({
+    eventId,
+    role: 'projector',
+    id: 'projector',
+    name: 'Projector Screen',
+    version: gameState?.version || 0,
+  });
 
   const [contestants, setContestants] = useState<Contestant[]>([]);
   const [questionKey, setQuestionKey] = useState<QuestionKey | null>(null);

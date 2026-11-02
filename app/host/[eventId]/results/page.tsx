@@ -25,6 +25,7 @@ import {
 import { computeLeaderboard } from '@/lib/scoring';
 import { HostHeader } from '@/components/host/HostHeader';
 import { HostNavTabs } from '@/components/host/HostNavTabs';
+import { usePresenceHost } from '@/lib/realtime/usePresenceSync';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ScoreAdjustmentModal } from '@/components/host/ScoreAdjustmentModal';
@@ -34,6 +35,8 @@ export default function HostEventResultsPage() {
   const params = useParams();
   const eventId = params.eventId as string;
   const supabase = useMemo(() => createClient(), []);
+
+  const { inSyncCount, totalTrackedCount, laggingDevices } = usePresenceHost(eventId, 0);
 
   const [event, setEvent] = useState<Event | null>(null);
   const [contestants, setContestants] = useState<Contestant[]>([]);
@@ -414,7 +417,15 @@ export default function HostEventResultsPage() {
 
   return (
     <div className="min-h-screen bg-cream-50 flex flex-col">
-      <HostHeader />
+      <HostHeader
+        eventName={event?.name}
+        eventStatus={event?.status}
+        joinCode={event?.join_code}
+        eventId={eventId}
+        inSyncCount={inSyncCount}
+        totalTrackedCount={totalTrackedCount}
+        laggingDevices={laggingDevices}
+      />
       <HostNavTabs eventId={eventId} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-8 py-8 space-y-8">

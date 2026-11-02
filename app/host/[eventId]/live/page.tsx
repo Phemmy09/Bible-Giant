@@ -27,7 +27,7 @@ import {
 import { useGameState } from '@/lib/realtime/useGameState';
 import { useServerClock } from '@/lib/realtime/useServerClock';
 import { ConnectionDot } from '@/components/ui/ConnectionDot';
-import { QuestionStatusBadge } from '@/components/ui/Badge';
+import { QuestionStatusBadge, EventStatusBadge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Countdown } from '@/components/ui/Countdown';
@@ -36,6 +36,7 @@ import { ScoreAdjustmentModal } from '@/components/host/ScoreAdjustmentModal';
 import { QuestionDocumentUploadModal } from '@/components/host/QuestionDocumentUploadModal';
 import { Soundboard } from '@/components/host/Soundboard';
 import { soundEngine } from '@/lib/soundEngine';
+import { usePresenceHost } from '@/lib/realtime/usePresenceSync';
 
 export default function HostLiveConsolePage() {
   const params = useParams();
@@ -71,6 +72,23 @@ export default function HostLiveConsolePage() {
   const [autoBroadcastOnSelect, setAutoBroadcastOnSelect] = useState(true);
   const [showAudienceLiveFeed, setShowAudienceLiveFeed] = useState(false);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [showSyncModal, setShowSyncModal] = useState(false);
+
+  // Presence and sync status (§9.4)
+  const { inSyncCount, totalTrackedCount, laggingDevices } = usePresenceHost(
+    eventId,
+    gameState?.version ?? 0
+  );
+
+  function handleCopyJoinCode() {
+    if (!event?.join_code) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(event.join_code);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  }
 
   const autoLockCalledRef = useRef(false);
 
@@ -456,9 +474,9 @@ export default function HostLiveConsolePage() {
 
   return (
     <div className="min-h-screen bg-cream-50 flex flex-col text-ink-900 select-none">
-      {/* 1. TOP BAR */}
-      <header className="w-full bg-navy-900 text-cream-50 px-4 sm:px-6 py-3 border-b border-navy-700 flex items-center justify-between shadow-soft">
-        <div className="flex items-center gap-4">
+      {/* 1. TOP BAR (§3.1, §9.4) */}
+      <header className="w-full bg-navy-900 text-cream-50 px-4 sm:px-6 py-2.5 border-b border-navy-700 flex flex-wrap items-center justify-between gap-3 shadow-soft">
+        <div className="flex items-center gap-3">
           <Link
             href={`/host/${eventId}`}
             className="text-xs font-semibold text-gold-300 hover:text-cream-50 transition-colors"
@@ -469,23 +487,107 @@ export default function HostLiveConsolePage() {
           <span className="font-display text-xl font-bold text-cream-50">
             {event?.name || 'Live Competition'}
           </span>
-          <ConnectionDot status={connectionStatus} className="text-gold-300 ml-2" />
+          {event?.status && <EventStatusBadge status={event.status} />}
+          <ConnectionDot status={connectionStatus} className="text-gold-300 ml-1" />
         </div>
 
-        <div className="flex items-center gap-3 text-xs sm:text-sm">
+        <div className="flex items-center gap-2.5 text-xs sm:text-sm flex-wrap">
+          {/* Join Code */}
+          {event?.join_code && (
+            <button
+              type="button"
+              onClick={handleCopyJoinCode}
+              title="Click to copy join code"
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-navy-800 border border-gold-500/30 hover:border-gold-500/60 transition-colors text-xs font-mono text-cream-50"
+            >
+              <span className="text-ink-500 uppercase text-[10px] font-sans">Code:</span>
+              <span className="font-extrabold text-gold-400">{event.join_code}</span>
+              <span className="text-[10px] text-ink-500 ml-0.5">{copiedCode ? '✓' : '📋'}</span>
+            </button>
+          )}
+
+          {/* In-Sync Indicator (§9.4) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowSyncModal((v) => !v)}
+              className="flex items-center gap-1.5 px-2 py-1 rounded bg-navy-800 border border-navy-700 text-xs font-medium text-cream-50 hover:bg-navy-700 transition-colors"
+            >
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  totalTrackedCount === 0
+                    ? 'bg-ink-500'
+                    : inSyncCount === totalTrackedCount
+                    ? 'bg-success'
+                    : 'bg-warning animate-pulse'
+                }`}
+              />
+              <span>
+                In sync {inSyncCount}/{totalTrackedCount}
+              </span>
+            </button>
+
+            {showSyncModal && (
+              <div className="absolute right-0 mt-2 w-72 bg-white text-navy-900 rounded-card shadow-soft border border-navy-700/20 p-3 z-50 text-xs">
+                <div className="flex items-center justify-between pb-2 border-b border-navy-700/10 mb-2">
+                  <span className="font-bold text-navy-900">Device Sync Status (§9.4)</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowSyncModal(false)}
+                    className="text-ink-500 hover:text-navy-900 font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {totalTrackedCount === 0 ? (
+                  <p className="text-ink-500 italic py-2">
+                    No contestant laptops or projector connected to live presence yet.
+                  </p>
+                ) : laggingDevices.length === 0 ? (
+                  <div className="py-2 text-success font-medium flex items-center gap-1.5">
+                    <span>✓</span>
+                    <span>All {totalTrackedCount} connected devices are in sync.</span>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 py-1">
+                    <p className="text-warning font-semibold text-[11px]">
+                      {laggingDevices.length} device(s) behind current version:
+                    </p>
+                    <ul className="space-y-1 max-h-36 overflow-y-auto">
+                      {laggingDevices.map((d) => (
+                        <li
+                          key={d.id}
+                          className="p-1.5 rounded bg-cream-50 border border-navy-700/10 flex items-center justify-between"
+                        >
+                          <span className="font-medium truncate max-w-[140px]">{d.name}</span>
+                          <span className="text-[10px] text-danger font-mono font-bold">
+                            {d.secondsBehind}s behind
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="h-4 w-px bg-navy-700 hidden sm:block" />
+
           <div className="flex items-center gap-1.5">
             <span className="text-gold-300 font-medium">Contestants:</span>
             <span className="font-mono font-bold text-cream-50">
               {connectedContestants.size} / {contestants.length}
             </span>
           </div>
-          <div className="h-4 w-px bg-navy-700" />
+          <div className="h-4 w-px bg-navy-700 hidden sm:block" />
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
             <span className="text-gold-300 font-medium">Audience:</span>
             <span className="font-mono font-bold text-cream-50">{audienceCount} live</span>
           </div>
-          <div className="h-4 w-px bg-navy-700" />
+          <div className="h-4 w-px bg-navy-700 hidden sm:block" />
           <button
             type="button"
             onClick={handleToggleScreenOutput}
@@ -497,7 +599,7 @@ export default function HostLiveConsolePage() {
           >
             <span>{gameState?.screen === 'blank' ? '⚫ Screen: Off (Blank)' : '🟢 Screen: Live'}</span>
           </button>
-          <div className="h-4 w-px bg-navy-700" />
+          <div className="h-4 w-px bg-navy-700 hidden sm:block" />
           <button
             type="button"
             onClick={() => setDocUploadOpen(true)}
@@ -506,7 +608,7 @@ export default function HostLiveConsolePage() {
             <span>📄</span>
             <span>Upload Questions</span>
           </button>
-          <div className="h-4 w-px bg-navy-700" />
+          <div className="h-4 w-px bg-navy-700 hidden sm:block" />
           <button
             type="button"
             onClick={() => setAdjustModalOpen(true)}
@@ -515,13 +617,14 @@ export default function HostLiveConsolePage() {
             <span>⚖️</span>
             <span>Adjust Scores</span>
           </button>
-          <div className="h-4 w-px bg-navy-700" />
+          <div className="h-4 w-px bg-navy-700 hidden sm:block" />
           <Link
             href={`/screen/${eventId}`}
             target="_blank"
-            className="px-2.5 py-1 rounded bg-gold-500 text-navy-950 font-bold text-xs hover:bg-gold-300 transition-colors"
+            className="px-2.5 py-1 rounded bg-gold-500 text-navy-950 font-bold text-xs hover:bg-gold-300 transition-colors flex items-center gap-1"
           >
-            Projector Screen ↗
+            <span>Projector Screen</span>
+            <span>↗</span>
           </Link>
         </div>
       </header>

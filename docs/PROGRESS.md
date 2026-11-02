@@ -682,7 +682,78 @@ This document tracks progress, test evidence, known gaps, and assumptions for ea
 - `tests/unit/load-test.test.ts`: Headless load test passing (P95: 437 ms < 3000 ms).
 
 ### Known Gaps / Risks
-- Ready for Gate A3 (Operator dashboard shell: §3 join panel with copy buttons, audience/contestant links with `?code=`, live counters, projector button, unified top bar).
+- None from Gate A2.
+
+---
+
+## Phase A — Gate A3: Operator Dashboard Shell & In-Sync Presence — 2026-11-02
+
+### Built
+- Implemented `lib/realtime/usePresenceSync.ts` providing:
+  - `usePresenceClient`: lightweight presence reporting hook for Contestants and Projector to report their active `game_state.version` on Supabase Realtime channel `presence:<eventId>` per §9.4.
+  - `usePresenceHost`: presence monitoring hook for the Operator console tracking total connected devices, in-sync count, projector connection state, and lagging devices with seconds-behind calculation.
+  - Invariant strictly enforced: Audience devices are NOT on presence channel to protect venue Wi-Fi / cell network with 120+ devices.
+- Created `components/host/JoinPanel.tsx` strictly implementing `docs/09-PHASE-A-OPERATOR-AND-LIVE-SYNC.md` §3.1:
+  - Huge event code with one-tap Copy.
+  - Audience direct link (`/audience?code=ABCDE`) with one-tap Copy.
+  - Contestant direct link (`/contestant?code=ABCDE`) with one-tap Copy.
+  - Instruction text: *"Tell audience: scan the screen QR or go to [link] and enter code [CODE]"*.
+  - Action button: *"Show Code on Projector"* calling `rpcHostSetScreen(eventId, 'lobby')`.
+  - Live counters for contestants (n/8), audience (n/120), and projector screen (Connected/Offline).
+  - Compact header mode for embedding in live and secondary views.
+- Unified `components/host/HostHeader.tsx` across all host tabs per §3.1 and §9.4:
+  - Brand and Event name with Event status badge.
+  - Small copyable join code button (`Code: ABCDE 📋`).
+  - Realtime connection indicator with pulse/ping animations.
+  - Live `In sync n/N` button with dropdown displaying connected device statuses and lagging device diagnostics.
+  - Screen output toggle (LIVE / BLANK).
+  - "Projector Screen ↗" link opening `/screen/[eventId]` in a new tab.
+  - Sign out button with cookie and Supabase session teardown.
+- Standardized top bar across all 5 host tabs:
+  - `/host/[eventId]` (Overview)
+  - `/host/[eventId]/contestants`
+  - `/host/[eventId]/rounds`
+  - `/host/[eventId]/live`
+  - `/host/[eventId]/results`
+- Updated `app/contestant/page.tsx` to read `?code=` query parameter from the contestant direct link inside a `<Suspense>` boundary.
+- Wired `usePresenceClient` in `app/contestant/[code]/page.tsx` and `app/screen/[eventId]/page.tsx`.
+- Built unit test suite `tests/unit/operator-shell.test.ts` (5 passing tests).
+
+### Files Changed / Created
+- `lib/realtime/usePresenceSync.ts` (created)
+- `components/host/JoinPanel.tsx` (created)
+- `components/host/HostHeader.tsx` (updated)
+- `app/host/[eventId]/page.tsx` (updated)
+- `app/host/[eventId]/contestants/page.tsx` (updated)
+- `app/host/[eventId]/rounds/page.tsx` (updated)
+- `app/host/[eventId]/live/page.tsx` (updated)
+- `app/host/[eventId]/results/page.tsx` (updated)
+- `app/contestant/page.tsx` (updated)
+- `app/contestant/[code]/page.tsx` (updated)
+- `app/screen/[eventId]/page.tsx` (updated)
+- `tests/unit/operator-shell.test.ts` (created)
+- `docs/PROGRESS.md` (updated)
+
+### Commands Run and Results
+- `npm.cmd run typecheck` (`tsc --noEmit`): PASSED (0 errors).
+- `npm.cmd run lint` (`next lint`): PASSED (0 warnings, 0 errors).
+- `npm.cmd run test` (`vitest run`): PASSED (9 test files, 30 of 30 tests passing).
+- `npm.cmd run build` (`next build`): PASSED (All 15 routes compiled cleanly into production artifacts).
+
+### Tests Run and Results
+- `tests/unit/operator-shell.test.ts`:
+  - Verified in-sync count when all devices match current version.
+  - Verified detection of lagging devices and calculation of seconds behind.
+  - Verified projector connection detection.
+  - Verified direct join URL formatting with `?code=ABCDE` parameter appending and parsing.
+  - Verified role restriction ensuring audience devices are never in presence list.
+- `tests/unit/audience-identity.test.ts`: 7 tests passing.
+- `tests/unit/phase-a-migration.test.ts`: DB-A01 through DB-A06 passing.
+- `tests/unit/load-test.test.ts`: Headless load test passing (P95: 411 ms < 3000 ms).
+
+### Known Gaps / Risks
+- Ready for Gate A4 (Questions: Quick add mode with `Ctrl+Enter`, Move to round dropdown calling `host_move_question`, reorder).
+
 
 
 

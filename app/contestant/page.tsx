@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { rpcJoinAsContestant, rpcGetEventByCode } from '@/lib/rpc';
 import { Button } from '@/components/ui/Button';
@@ -16,8 +16,9 @@ import {
 const EKITI_ZONES = ['Ado-Ekiti', 'Ikole', 'Ijero', 'Oye', 'Ikere', 'Ekiti West'];
 const ONDO_ZONES = ['Akure', 'Owo', 'Ikare', 'Ondo Central', 'Ore', 'Okitipupa'];
 
-export default function ContestantSignInPage() {
+function ContestantSignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = createClient();
 
   const [code, setCode] = useState('');
@@ -33,6 +34,18 @@ export default function ContestantSignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+
+  // Read URL query code on mount
+  useEffect(() => {
+    try {
+      const urlCode = searchParams.get('code');
+      if (urlCode) {
+        setCode(urlCode.trim().toUpperCase());
+      }
+    } catch {
+      // Ignore
+    }
+  }, [searchParams]);
 
   // Sync default name and zone when seat or state changes
   useEffect(() => {
@@ -379,5 +392,21 @@ export default function ContestantSignInPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function ContestantSignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-cream-50 flex items-center justify-center p-4">
+          <div className="flex flex-col items-center gap-2 text-ink-500">
+            <p className="text-sm">Loading…</p>
+          </div>
+        </main>
+      }
+    >
+      <ContestantSignInForm />
+    </Suspense>
   );
 }

@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Event, Contestant, Round, Question, AudienceMember, Prediction, EventStatus } from '@/lib/types';
-import { rpcHostSetEventStatus } from '@/lib/rpc';
+import { rpcHostSetEventStatus, rpcHostSetScreen } from '@/lib/rpc';
 import { HostHeader } from '@/components/host/HostHeader';
 import { HostNavTabs } from '@/components/host/HostNavTabs';
+import { JoinPanel } from '@/components/host/JoinPanel';
+import { usePresenceHost } from '@/lib/realtime/usePresenceSync';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EventStatusBadge } from '@/components/ui/Badge';
@@ -25,6 +27,7 @@ export default function EventOverviewPage() {
   const [audience, setAudience] = useState<AudienceMember[]>([]);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [hasQuestionKeysError, setHasQuestionKeysError] = useState(false);
+  const [gameState, setGameState] = useState<{ version: number; screen: string } | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +130,16 @@ export default function EventOverviewPage() {
         .select('*')
         .eq('event_id', eventId);
       setPredictions((predData as Prediction[]) || []);
+
+      // 8. Game State
+      const { data: gsData } = await supabase
+        .from('game_state')
+        .select('version, screen')
+        .eq('event_id', eventId)
+        .single();
+      if (gsData) {
+        setGameState(gsData as { version: number; screen: string });
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load event data';
       setError(msg);
@@ -175,6 +188,20 @@ export default function EventOverviewPage() {
             .single()
             .then(({ data }) => {
               if (data) setEvent(data as Event);
+            });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'game_state', filter: `event_id=eq.${eventId}` },
+        () => {
+          supabase
+            .from('game_state')
+            .select('version, screen')
+            .eq('event_id', eventId)
+            .single()
+            .then(({ data }) => {
+              if (data) setGameState(data as { version: number; screen: string });
             });
         }
       )
@@ -273,6 +300,17 @@ export default function EventOverviewPage() {
     });
   }, [contestants, predictions]);
 
+  // Presence and sync status (§9.4)
+  const { inSyncCount, totalTrackedCount, projectorConnected, laggingDevices } = usePresenceHost(
+    eventId,
+    gameState?.version ?? 0
+  );
+
+  async function handleToggleScreenBlank() {
+    const nextMode = gameState?.screen === 'blank' ? 'lobby' : 'blank';
+    await rpcHostSetScreen(eventId, nextMode as any, supabase);
+  }
+
   if (isLoading && !event) {
     return (
       <div className="min-h-screen bg-cream-50 flex flex-col">
@@ -300,7 +338,17 @@ export default function EventOverviewPage() {
 
   return (
     <div className="min-h-screen bg-cream-50 flex flex-col">
-      <HostHeader eventName={event.name} />
+      <HostHeader
+        eventName={event.name}
+        eventStatus={event.status}
+        joinCode={event.join_code}
+        eventId={eventId}
+        screenMode={gameState?.screen}
+        onToggleScreenBlank={handleToggleScreenBlank}
+        inSyncCount={inSyncCount}
+        totalTrackedCount={totalTrackedCount}
+        laggingDevices={laggingDevices}
+      />
       <HostNavTabs eventId={eventId} />
 
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-8 flex flex-col gap-8">
@@ -313,199 +361,187 @@ export default function EventOverviewPage() {
           </div>
         )}
 
-        {/* Top Hero Section: Join Code & Lifecycle Stepper */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
-          {/* Join Code Card */}
-          <Card className="lg:col-span-1 bg-navy-900 text-cream-50 flex flex-col justify-between items-center text-center p-6 border-gold-500/30">
-            <div>
-              <p className="text-xs uppercase tracking-widest text-gold-300 font-semibold mb-2">
-                Join Code
-              </p>
-              <div className="font-mono text-5xl sm:text-6xl font-bold tracking-widest text-cream-50 my-2 select-all">
-                {event.join_code}
-              </div>
-              <p className="text-xs text-cream-50/70 mt-1 max-w-xs mx-auto">
-                Audience & contestants join at the home page with this code.
-              </p>
-            </div>
-            <Button
-              variant="gold"
-              size="md"
-              onClick={handleCopyJoinCode}
-              className="w-full mt-6 text-sm"
-            >
-              {copiedCode ? '✓ Copied to Clipboard' : 'Copy Join Code'}
-            </Button>
-          </Card>
+        {/* Join Panel (§3.1) */}
+        <JoinPanel
+          event={event}
+          contestantsSignedCount={contestants.filter((c) => !!c.auth_user_id).length}
+          totalContestantsCount={contestants.length || 8}
+          audienceJoinedCount={audience.length}
+          maxAudience={120}
+          projectorConnected={projectorConnected}
+          onShowOnProjector={async () => {
+            const res = await rpcHostSetScreen(eventId, 'lobby', supabase);
+            if (!res.ok) setError(res.message);
+          }}
+        />
 
-          {/* Event Lifecycle Stepper */}
-          <Card className="lg:col-span-2 bg-white flex flex-col justify-between p-6">
-            <div>
-              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-                <div>
-                  <h2 className="font-display text-2xl font-bold text-navy-900">
-                    Event Status & Flow
-                  </h2>
-                  <p className="text-xs sm:text-sm text-ink-500">
-                    Control the stage progression from setup through live competition to final standings.
-                  </p>
-                </div>
-                <EventStatusBadge status={event.status} />
-              </div>
-
-              {/* Status Flow Indicators */}
-              <div className="grid grid-cols-5 gap-2 my-6 text-center text-xs font-semibold">
-                {[
-                  { key: 'setup', label: '1. Setup' },
-                  { key: 'predictions_open', label: '2. Predictions' },
-                  { key: 'predictions_locked', label: '3. Locked' },
-                  { key: 'live', label: '4. Live Contest' },
-                  { key: 'finished', label: '5. Finished' },
-                ].map((s) => {
-                  const isCurrent = event.status === s.key;
-                  return (
-                    <div
-                      key={s.key}
-                      className={`p-2 rounded-btn border transition-colors ${
-                        isCurrent
-                          ? 'bg-gold-500/20 border-gold-500 text-navy-900 font-bold'
-                          : 'bg-cream-100 border-navy-700/10 text-ink-500'
-                      }`}
-                    >
-                      {s.label}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Stepper Action Buttons */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-navy-700/10">
-              {/* Allowed back-steps */}
+        {/* Event Lifecycle Stepper */}
+        <Card className="w-full bg-white flex flex-col justify-between p-6">
+          <div>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
               <div>
-                {event.status === 'predictions_locked' && (
-                  <Button
-                    variant="ghost"
-                    size="md"
-                    onClick={() =>
-                      setConfirmModal({
-                        isOpen: true,
-                        targetStatus: 'predictions_open',
-                        title: 'Reopen Predictions?',
-                        message: 'Audience members will be allowed to submit or adjust their predictions.',
-                      })
-                    }
-                    className="text-xs sm:text-sm"
-                  >
-                    ← Reopen Predictions
-                  </Button>
-                )}
-                {event.status === 'finished' && (
-                  <Button
-                    variant="ghost"
-                    size="md"
-                    onClick={() =>
-                      setConfirmModal({
-                        isOpen: true,
-                        targetStatus: 'live',
-                        title: 'Resume Contest?',
-                        message: 'This will return the event to live status.',
-                      })
-                    }
-                    className="text-xs sm:text-sm"
-                  >
-                    ← Resume Contest
-                  </Button>
-                )}
+                <h2 className="font-display text-2xl font-bold text-navy-900">
+                  Event Status & Flow
+                </h2>
+                <p className="text-xs sm:text-sm text-ink-500">
+                  Control the stage progression from setup through live competition to final standings.
+                </p>
               </div>
+              <EventStatusBadge status={event.status} />
+            </div>
 
-              {/* Next forward transitions */}
-              <div className="flex items-center gap-3 ml-auto">
-                {event.status === 'setup' && (
-                  <>
-                    <Button
-                      variant="gold"
-                      size="md"
-                      isLoading={isUpdatingStatus}
-                      onClick={() => handleSetStatus('predictions_open')}
-                    >
-                      Open Predictions →
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="md"
-                      isLoading={isUpdatingStatus}
-                      disabled={!isReadyForLive}
-                      onClick={() => handleSetStatus('live')}
-                      title={!isReadyForLive ? 'Complete Ready Check first' : ''}
-                    >
-                      Skip to Contest →
-                    </Button>
-                  </>
-                )}
+            {/* Status Flow Indicators */}
+            <div className="grid grid-cols-5 gap-2 my-6 text-center text-xs font-semibold">
+              {[
+                { key: 'setup', label: '1. Setup' },
+                { key: 'predictions_open', label: '2. Predictions' },
+                { key: 'predictions_locked', label: '3. Locked' },
+                { key: 'live', label: '4. Live Contest' },
+                { key: 'finished', label: '5. Finished' },
+              ].map((s) => {
+                const isCurrent = event.status === s.key;
+                return (
+                  <div
+                    key={s.key}
+                    className={`p-2 rounded-btn border transition-colors ${
+                      isCurrent
+                        ? 'bg-gold-500/20 border-gold-500 text-navy-900 font-bold'
+                        : 'bg-cream-100 border-navy-700/10 text-ink-500'
+                    }`}
+                  >
+                    {s.label}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
-                {event.status === 'predictions_open' && (
+          {/* Stepper Action Buttons */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-navy-700/10">
+            {/* Allowed back-steps */}
+            <div>
+              {event.status === 'predictions_locked' && (
+                <Button
+                  variant="ghost"
+                  size="md"
+                  onClick={() =>
+                    setConfirmModal({
+                      isOpen: true,
+                      targetStatus: 'predictions_open',
+                      title: 'Reopen Predictions?',
+                      message: 'Audience members will be allowed to submit or adjust their predictions.',
+                    })
+                  }
+                  className="text-xs sm:text-sm"
+                >
+                  ← Reopen Predictions
+                </Button>
+              )}
+              {event.status === 'finished' && (
+                <Button
+                  variant="ghost"
+                  size="md"
+                  onClick={() =>
+                    setConfirmModal({
+                      isOpen: true,
+                      targetStatus: 'live',
+                      title: 'Resume Contest?',
+                      message: 'This will return the event to live status.',
+                    })
+                  }
+                  className="text-xs sm:text-sm"
+                >
+                  ← Resume Contest
+                </Button>
+              )}
+            </div>
+
+            {/* Next forward transitions */}
+            <div className="flex items-center gap-3 ml-auto">
+              {event.status === 'setup' && (
+                <>
                   <Button
                     variant="gold"
                     size="md"
                     isLoading={isUpdatingStatus}
-                    onClick={() => handleSetStatus('predictions_locked')}
+                    onClick={() => handleSetStatus('predictions_open')}
                   >
-                    Lock Predictions →
+                    Open Predictions →
                   </Button>
-                )}
-
-                {event.status === 'predictions_locked' && (
                   <Button
-                    variant="gold"
+                    variant="primary"
                     size="md"
                     isLoading={isUpdatingStatus}
                     disabled={!isReadyForLive}
                     onClick={() => handleSetStatus('live')}
                     title={!isReadyForLive ? 'Complete Ready Check first' : ''}
                   >
-                    Start Contest →
+                    Skip to Contest →
                   </Button>
-                )}
+                </>
+              )}
 
-                {event.status === 'live' && (
-                  <>
-                    <Link
-                      href={`/host/${eventId}/live`}
-                      className="inline-flex items-center justify-center min-h-[44px] px-5 py-2 rounded-btn bg-gold-500 text-navy-950 font-bold hover:bg-gold-300 transition-colors text-sm shadow-sm"
-                    >
-                      Open Live Console ⚡
-                    </Link>
-                    <Button
-                      variant="danger"
-                      size="md"
-                      onClick={() =>
-                        setConfirmModal({
-                          isOpen: true,
-                          targetStatus: 'finished',
-                          title: 'Finish Competition?',
-                          message: 'All questions will be concluded and the final podium will be revealed.',
-                        })
-                      }
-                      className="text-xs sm:text-sm"
-                    >
-                      Finish Contest
-                    </Button>
-                  </>
-                )}
+              {event.status === 'predictions_open' && (
+                <Button
+                  variant="gold"
+                  size="md"
+                  isLoading={isUpdatingStatus}
+                  onClick={() => handleSetStatus('predictions_locked')}
+                >
+                  Lock Predictions →
+                </Button>
+              )}
 
-                {event.status === 'finished' && (
+              {event.status === 'predictions_locked' && (
+                <Button
+                  variant="gold"
+                  size="md"
+                  isLoading={isUpdatingStatus}
+                  disabled={!isReadyForLive}
+                  onClick={() => handleSetStatus('live')}
+                  title={!isReadyForLive ? 'Complete Ready Check first' : ''}
+                >
+                  Start Contest →
+                </Button>
+              )}
+
+              {event.status === 'live' && (
+                <>
                   <Link
-                    href={`/host/${eventId}/results`}
-                    className="inline-flex items-center justify-center min-h-[44px] px-5 py-2 rounded-btn bg-gold-500 text-navy-950 font-bold hover:bg-gold-300 transition-colors text-sm"
+                    href={`/host/${eventId}/live`}
+                    className="inline-flex items-center justify-center min-h-[44px] px-5 py-2 rounded-btn bg-gold-500 text-navy-950 font-bold hover:bg-gold-300 transition-colors text-sm shadow-sm"
                   >
-                    View Results & Raffle →
+                    Open Live Console ⚡
                   </Link>
-                )}
-              </div>
+                  <Button
+                    variant="danger"
+                    size="md"
+                    onClick={() =>
+                      setConfirmModal({
+                        isOpen: true,
+                        targetStatus: 'finished',
+                        title: 'Finish Competition?',
+                        message: 'All questions will be concluded and the final podium will be revealed.',
+                      })
+                    }
+                    className="text-xs sm:text-sm"
+                  >
+                    Finish Contest
+                  </Button>
+                </>
+              )}
+
+              {event.status === 'finished' && (
+                <Link
+                  href={`/host/${eventId}/results`}
+                  className="inline-flex items-center justify-center min-h-[44px] px-5 py-2 rounded-btn bg-gold-500 text-navy-950 font-bold hover:bg-gold-300 transition-colors text-sm"
+                >
+                  View Results & Raffle →
+                </Link>
+              )}
             </div>
-          </Card>
-        </div>
+          </div>
+        </Card>
 
         {/* Metrics Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

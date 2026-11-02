@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/Button';
 import { Countdown } from '@/components/ui/Countdown';
 import { OptionCard } from '@/components/ui/OptionCard';
 import { computeLeaderboard } from '@/lib/scoring';
+import { usePresenceClient } from '@/lib/realtime/usePresenceSync';
 
 export default function ContestantViewPage() {
   const params = useParams();
@@ -47,6 +48,15 @@ export default function ContestantViewPage() {
   // Realtime hooks
   const { gameState, event, currentQuestion, currentRound, connectionStatus } = useGameState(eventId);
   const { getServerNow } = useServerClock();
+
+  // Presence reporting (§9.4)
+  usePresenceClient({
+    eventId,
+    role: 'contestant',
+    id: contestant?.id || '',
+    name: contestant?.name || 'Contestant',
+    version: gameState?.version || 0,
+  });
 
   // 1. Initial auth & contestant claim validation
   useEffect(() => {
